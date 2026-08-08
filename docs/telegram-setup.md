@@ -47,8 +47,15 @@ weights download on first use and are cached. Measured on a desktop CPU:
 ~1.3 s to load, ~1 s per 5 s of audio with `Xenova/whisper-base`. The adapter
 loads the model at startup so the first voice note isn't slow.
 
-**TTS needs Piper**, because it is the only local engine with a genuinely good
-German voice. Two downloads:
+**In Docker there is nothing to install.** The adapter image bakes in the Linux
+Piper build and the German voice (~90 MB), with `PIPER_BINARY` and `PIPER_MODEL`
+defaulted to match. Compose deliberately does not pass the host's `PIPER_*`
+values through: those are host paths for running natively, and a host path
+inside a container is exactly how this breaks. Override `PIPER_ARCH=aarch64` as
+a build argument for a Raspberry Pi, or `PIPER_VOICE_URL` for a different voice.
+
+**Running natively, TTS needs Piper installed**, because it is the only local
+engine with a genuinely good German voice. Two downloads:
 
 ```bash
 sudo mkdir -p /opt/piper && cd /opt/piper

@@ -83,14 +83,14 @@ services:
       # Keep the model cache on a volume; otherwise every container rebuild
       # re-downloads several hundred megabytes of weights.
       WHISPER_CACHE_DIR: /models/whisper
-      PIPER_BINARY: ${PIPER_BINARY:-/opt/piper/piper}
-      PIPER_MODEL: ${PIPER_MODEL:-/opt/piper/de_DE-thorsten-medium.onnx}
-      PIPER_SAMPLE_RATE: ${PIPER_SAMPLE_RATE:-22050}
+      # PIPER_BINARY / PIPER_MODEL are deliberately NOT inherited from .env:
+      # those hold host paths for running natively, and a host path inside a
+      # container is how this broke before. The image ships Piper with matching
+      # defaults, so there is nothing to configure here.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
+      # Whisper weights (~280 MB) — without this every restart re-downloads them.
       - speech-models:/models
-      # Piper binary and voice models from the host — see docs/telegram-setup.md.
-      - ${PIPER_HOST_DIR:-./.local/piper}:/opt/piper:ro
     ports:
       # Loopback only; the local Nginx Proxy Manager terminates TLS in front.
       - "127.0.0.1:8081:8081"

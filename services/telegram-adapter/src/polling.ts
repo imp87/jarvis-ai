@@ -37,7 +37,7 @@ export class PollingLoop {
   }
 
   private async loop(): Promise<void> {
-    this.logger.info("long-polling started (development mode)");
+    this.logger.info({ timeoutSeconds: this.timeoutSeconds }, "long-polling started");
     let backoffMs = 1000;
 
     while (this.running) {

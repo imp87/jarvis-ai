@@ -57,6 +57,7 @@ export function buildProviders(options: BuildProvidersOptions): {
         name: "openai",
         baseUrl: "https://api.openai.com/v1",
         apiKey: options.openaiApiKey,
+        logger: options.logger,
         model: options.defaults?.openaiModel ?? "gpt-5.6-luna",
       }),
     );
@@ -73,6 +74,7 @@ export function buildProviders(options: BuildProvidersOptions): {
         // cannot call tools, set supportsTools:false here and give every
         // tool-using profile a fallbackProfile.
         supportsTools: true,
+        logger: options.logger,
         // Local hardware is slower than a hosted API; be patient before failing.
         timeoutMs: 300_000,
       }),

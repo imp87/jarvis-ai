@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { NotFoundError, encryptSecret } from "@jarvis/shared";
+import { AppError, NotFoundError, encryptSecret } from "@jarvis/shared";
 import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
 import { connectRegisteredMcpServers } from "../container.js";
@@ -60,6 +60,22 @@ const createMcpServerSchema = z
   });
 
 /**
+ * Postgres reports a duplicate name as 23505. Left unhandled it surfaces as a
+ * 500 with a raw constraint name, which reads like the server broke when in
+ * fact the caller picked a name that is already taken.
+ */
+function rethrowDuplicateAs409(err: unknown, what: string, name: string): never {
+  if ((err as { code?: string }).code === "23505") {
+    throw new AppError(
+      `${what} "${name}" already exists — delete it first or choose another name`,
+      409,
+      "name_taken",
+    );
+  }
+  throw err;
+}
+
+/**
  * Tool registry API (component 8) plus MCP server management (component 3).
  * The Next.js admin UI is a client of these endpoints — the logic lives here so
  * the UI stays a thin front end.
@@ -109,15 +125,17 @@ export function registryRoutes(container: Container): Router {
     "/v1/connectors",
     asyncHandler(async (req, res) => {
       const input = createConnectorSchema.parse(req.body);
-      const connector = await repos.registry.createConnector({
+      const connector = await repos.registry
+        .createConnector({
         name: input.name,
         description: input.description,
         baseUrl: input.baseUrl,
         authType: input.authType,
         authParamName: input.authParamName ?? null,
         credentialsEnc: input.credential ? encryptSecret(input.credential, masterKey) : null,
-        openapiSpec: input.openapiSpec,
-      });
+          openapiSpec: input.openapiSpec,
+        })
+        .catch((err: unknown) => rethrowDuplicateAs409(err, "connector", input.name));
       logger.info({ connector: connector.name }, "connector registered");
       res.status(201).json({ id: connector.id, name: connector.name });
     }),
@@ -199,15 +217,17 @@ export function registryRoutes(container: Container): Router {
     "/v1/mcp/servers",
     asyncHandler(async (req, res) => {
       const input = createMcpServerSchema.parse(req.body);
-      const row = await repos.registry.createMcpServer({
+      const row = await repos.registry
+        .createMcpServer({
         name: input.name,
         description: input.description,
         transport: input.transport,
         url: input.url ?? null,
         command: input.command ?? null,
         args: input.args,
-        secretsEnc: input.secrets ? encryptSecret(JSON.stringify(input.secrets), masterKey) : null,
-      });
+          secretsEnc: input.secrets ? encryptSecret(JSON.stringify(input.secrets), masterKey) : null,
+        })
+        .catch((err: unknown) => rethrowDuplicateAs409(err, "MCP server", input.name));
 
       // Connect immediately so the tools are usable without a restart. A
       // failure here is reported but does not undo the registration.
