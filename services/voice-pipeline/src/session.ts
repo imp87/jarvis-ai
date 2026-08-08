@@ -215,6 +215,9 @@ export class CallSession {
         if (this.finished) break;
         await this.transport.send(frame);
       }
+      // Only now is the caller done hearing it; listening any earlier would
+      // capture our own tail end.
+      await this.transport.flush();
     } finally {
       this.speaking = false;
       this.endpointer.reset();

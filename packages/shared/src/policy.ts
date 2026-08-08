@@ -42,7 +42,9 @@ export function isWithinQuietHours(now: Date, quiet: QuietHours): boolean {
 }
 
 export interface CallBudget {
+  /** 0 means no limit. */
   maxPerHour: number;
+  /** 0 means no limit. */
   maxPerDay: number;
 }
 
@@ -66,14 +68,19 @@ export function evaluateCallPolicy(input: {
 
   // Budget applies even to urgent calls — the whole point is that a
   // false-positive storm can't dial you 40 times.
-  if (usage.lastHour >= budget.maxPerHour) {
+  //
+  // 0 disables the limit rather than blocking everything. The literal reading
+  // ("allow zero calls") would turn a config meant to remove a restriction into
+  // one that silently disables calling altogether; to stop the agent calling,
+  // disable the voice_call identity or unset OWNER_PHONE_NUMBER instead.
+  if (budget.maxPerHour > 0 && usage.lastHour >= budget.maxPerHour) {
     return {
       allowed: false,
       reason: `hourly call budget exhausted (${usage.lastHour}/${budget.maxPerHour})`,
       retryAfterSeconds: 3600,
     };
   }
-  if (usage.lastDay >= budget.maxPerDay) {
+  if (budget.maxPerDay > 0 && usage.lastDay >= budget.maxPerDay) {
     return {
       allowed: false,
       reason: `daily call budget exhausted (${usage.lastDay}/${budget.maxPerDay})`,

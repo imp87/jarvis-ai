@@ -21,6 +21,8 @@ export interface CallTransport {
   send(pcm: Buffer): Promise<void>;
   /** Stop any audio currently being sent — the basis for barge-in. */
   stopSending(): void;
+  /** Resolves once queued audio has actually been played out to the caller. */
+  flush(): Promise<void>;
   hangup(): Promise<void>;
 }
 

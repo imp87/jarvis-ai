@@ -47,6 +47,10 @@ export class LoopbackTransport implements CallTransport {
     this.outbound.push(Buffer.from(pcm));
   }
 
+  async flush(): Promise<void> {
+    // Nothing is queued in loopback; send() already recorded everything.
+  }
+
   stopSending(): void {
     // Nothing is buffered downstream in loopback; the recording keeps whatever
     // was already produced, which is what a real barge-in would leave behind.

@@ -7,6 +7,10 @@ import {
 } from "../audio/audiosocket-protocol.js";
 import type { CallTransport } from "../transport.js";
 
+/** ~500 ms of audio: enough to absorb synthesis jitter, short enough that the
+ * session does not race ahead of what the caller is hearing. */
+const MAX_QUEUED_FRAMES = 25;
+
 /**
  * A live call, carried over Asterisk's AudioSocket.
  *
@@ -22,13 +26,29 @@ class AudioSocketTransport implements CallTransport {
   private audioHandler: ((frame: Buffer) => void) | undefined;
   private hangupHandler: (() => void) | undefined;
   private closed = false;
-  private cancelSending = false;
+
+  /**
+   * Speech waiting to go out, one transport-sized frame per entry.
+   *
+   * Asterisk's AudioSocket is lock-step: for every frame it sends it blocks
+   * waiting for exactly one frame back, and gives up if none arrives. Writing
+   * only while the agent speaks therefore stalls the call — the symptom is a
+   * connected call with no audio at all, followed by
+   * "Failed to receive frame from AudioSocket message". So every inbound frame
+   * is answered, with queued speech if there is any and silence otherwise.
+   */
+  private readonly outgoing: Buffer[] = [];
+  private readonly silence: Buffer;
+  private readonly waiters: Array<() => void> = [];
 
   constructor(
     readonly callId: string,
     private readonly socket: Socket,
     private readonly logger: Logger,
-  ) {}
+    frameBytes = 320,
+  ) {
+    this.silence = Buffer.alloc(frameBytes);
+  }
 
   onAudio(handler: (frame: Buffer) => void): void {
     this.audioHandler = handler;
@@ -38,26 +58,66 @@ class AudioSocketTransport implements CallTransport {
     this.hangupHandler = handler;
   }
 
+  /**
+   * Called for each frame Asterisk sends: hand it to the session, then answer
+   * with one frame. Keeping the reply here — rather than on a timer — means the
+   * outgoing stream is paced by the call itself and cannot drift.
+   */
   deliver(frame: Buffer): void {
     this.audioHandler?.(frame);
+    this.pump();
   }
 
+  private pump(): void {
+    if (this.closed) return;
+    const next = this.outgoing.shift() ?? this.silence;
+    this.socket.write(encodeAudio(next));
+    this.releaseWaiters();
+  }
+
+  private releaseWaiters(): void {
+    if (this.waiters.length === 0) return;
+    // Space for more audio, or nothing left to play: either way, wake them.
+    if (this.outgoing.length < MAX_QUEUED_FRAMES || this.outgoing.length === 0) {
+      const waiting = this.waiters.splice(0);
+      for (const resolve of waiting) resolve();
+    }
+  }
+
+  /**
+   * Queues one frame, blocking only when the buffer is already deep enough.
+   *
+   * A little buffering absorbs synthesis jitter; unlimited buffering would let
+   * the session queue a whole reply, conclude it had finished speaking, and
+   * start listening while the caller is still hearing it.
+   */
   async send(pcm: Buffer): Promise<void> {
-    if (this.closed || this.cancelSending) return;
-    await new Promise<void>((resolve) => {
-      // Respect backpressure: Asterisk consumes at real time, so without this a
-      // long reply would be buffered in memory and arrive as a burst.
-      const ok = this.socket.write(encodeAudio(pcm), () => resolve());
-      if (!ok) this.socket.once("drain", () => resolve());
+    if (this.closed) return;
+    this.outgoing.push(pcm);
+    if (this.outgoing.length < MAX_QUEUED_FRAMES) return;
+    await this.wait();
+  }
+
+  /** Resolves once every queued frame has gone out. */
+  async flush(): Promise<void> {
+    while (!this.closed && this.outgoing.length > 0) {
+      await this.wait();
+    }
+  }
+
+  private wait(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.waiters.push(resolve);
+      // The pump only runs while the far end sends frames. If the call drops,
+      // nothing would ever wake this.
+      setTimeout(resolve, 5000).unref();
     });
   }
 
+  /** Drops queued speech — the mechanism barge-in will use. */
   stopSending(): void {
-    this.cancelSending = true;
-  }
-
-  resumeSending(): void {
-    this.cancelSending = false;
+    this.outgoing.length = 0;
+    this.releaseWaiters();
   }
 
   async hangup(): Promise<void> {

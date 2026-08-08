@@ -79,3 +79,45 @@ describe("evaluateCallPolicy", () => {
     assert.match(decision.allowed === false ? decision.reason : "", /daily call budget/);
   });
 });
+
+describe("evaluateCallPolicy with limits disabled", () => {
+  const now = new Date("2026-08-08T12:00:00Z");
+
+  it("treats 0 as no limit rather than as a total block", () => {
+    // The literal reading would make "remove the cap" silently mean "never
+    // call me again", which is the opposite of the intent.
+    const decision = evaluateCallPolicy({
+      now,
+      urgent: false,
+      quiet,
+      budget: { maxPerHour: 0, maxPerDay: 0 },
+      usage: { lastHour: 99, lastDay: 999 },
+    });
+    assert.equal(decision.allowed, true);
+  });
+
+  it("still applies a daily cap when only the hourly one is disabled", () => {
+    const decision = evaluateCallPolicy({
+      now,
+      urgent: false,
+      quiet,
+      budget: { maxPerHour: 0, maxPerDay: 8 },
+      usage: { lastHour: 50, lastDay: 8 },
+    });
+    assert.equal(decision.allowed, false);
+    assert.match(decision.allowed === false ? decision.reason : "", /daily/);
+  });
+
+  it("still honours quiet hours when budgets are disabled", () => {
+    // Removing the cap must not accidentally remove the 3am protection too.
+    const decision = evaluateCallPolicy({
+      now: new Date("2026-08-08T23:30:00Z"),
+      urgent: false,
+      quiet,
+      budget: { maxPerHour: 0, maxPerDay: 0 },
+      usage: noUsage,
+    });
+    assert.equal(decision.allowed, false);
+    assert.match(decision.allowed === false ? decision.reason : "", /quiet hours/);
+  });
+});

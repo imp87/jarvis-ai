@@ -1,4 +1,4 @@
-import { writeFile, rename, mkdir } from "node:fs/promises";
+import { writeFile, rename, mkdir, chmod } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "@jarvis/shared";
 
@@ -48,6 +48,9 @@ export class CallOriginator {
     const target = path.join(this.options.spoolDir, `${input.callId}.call`);
 
     await writeFile(staged, lines, "utf8");
+    // Asterisk runs as its own user and calls utime() on the file it picks up.
+    // Without this it logs "Operation not permitted" on every single call.
+    await chmod(staged, 0o666);
     // Asterisk polls the spool directory and will happily read a half-written
     // file. Writing elsewhere and renaming makes it appear complete or not at all.
     await rename(staged, target);
