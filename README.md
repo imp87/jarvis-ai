@@ -27,6 +27,9 @@ node -e "console.log('SERVICE_TOKEN='+require('crypto').randomBytes(32).toString
 # 3. Database
 docker compose up -d postgres
 pnpm db:migrate
+# On a server with only Docker installed, use this instead — same migrations,
+# run from the orchestrator image, no Node or pnpm required:
+#   docker compose run --rm migrate
 
 # 4. Build and run
 pnpm build
@@ -85,7 +88,8 @@ kind of object. See [docs/architecture.md](docs/architecture.md#why-a-monorepo).
 | `pnpm build` | Build every package (Turborepo, cached) |
 | `pnpm typecheck` | Type-check without emitting |
 | `pnpm test` | Run unit tests |
-| `pnpm db:migrate` | Apply migrations (idempotent, checksummed) |
+| `pnpm db:migrate` | Apply migrations (idempotent, checksummed) — needs the dev toolchain |
+| `docker compose run --rm migrate` | The same migrations, from the image — needs nothing but Docker |
 | `pnpm orchestrator:dev` | Run the orchestrator with hot reload |
 | `pnpm telegram:dev` | Run the Telegram adapter with hot reload |
 

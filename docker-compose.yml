@@ -63,6 +63,31 @@ services:
       # Nothing in this stack should be directly internet-facing.
       - "127.0.0.1:${ORCHESTRATOR_HOST_PORT:-18780}:8080"
 
+  # One-off migration runner:  docker compose run --rm migrate
+  #
+  # The orchestrator image already carries the compiled migrator and the SQL
+  # files, so a server needs no Node, pnpm or checkout-level install just to
+  # bring the schema up to date — which is otherwise a surprising amount of
+  # toolchain to require on a machine that only runs containers.
+  #
+  # Behind a profile so it never starts as part of `docker compose up`.
+  migrate:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis
+      # Must match the orchestrator: it is substituted into the vector column
+      # definitions, so a mismatch corrupts embeddings rather than erroring.
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+    command: ["node", "/app/node_modules/@jarvis/db/dist/cli/migrate.js"]
+    healthcheck:
+      disable: true
+
   telegram-adapter:
     build:
       context: .
