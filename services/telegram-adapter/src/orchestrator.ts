@@ -31,6 +31,27 @@ export class OrchestratorClient {
   }
 
   /**
+   * Waits for the orchestrator to answer its health check. Both services are
+   * usually started together, so a short retry window avoids a spurious failure
+   * when the adapter wins the race — but an orchestrator that never appears is
+   * reported loudly rather than discovered on the user's first message.
+   */
+  async waitUntilReachable(attempts = 10, delayMs = 1500): Promise<boolean> {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(`${this.baseUrl}/health`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (response.ok) return true;
+      } catch {
+        // Still starting, or not there at all — the loop decides which.
+      }
+      if (attempt < attempts) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return false;
+  }
+
+  /**
    * Returns null for an unregistered identity. Called before any expensive work
    * so a stranger's voice note is never downloaded or transcribed.
    */
@@ -42,6 +63,8 @@ export class OrchestratorClient {
     const response = await fetch(url, {
       headers: { authorization: `Bearer ${this.serviceToken}` },
       signal: AbortSignal.timeout(30_000),
+    }).catch((err: unknown) => {
+      throw new Error(describeFetchError(err, this.baseUrl), { cause: err });
     });
     if (response.status === 404) return null;
     if (!response.ok) {
@@ -69,6 +92,8 @@ export class OrchestratorClient {
       }),
       // The agent loop can run tools for a while; this is deliberately generous.
       signal: AbortSignal.timeout(this.timeoutMs),
+    }).catch((err: unknown) => {
+      throw new Error(describeFetchError(err, this.baseUrl), { cause: err });
     });
 
     if (!response.ok) {
@@ -82,4 +107,22 @@ export class OrchestratorClient {
 
 async function safeText(response: Response): Promise<string> {
   return (await response.text().catch(() => "")).slice(0, 500);
+}
+
+/**
+ * Node's fetch reports every transport failure as a bare "TypeError: fetch
+ * failed" and hides the actual reason — ECONNREFUSED, DNS failure, TLS error —
+ * one level down in `cause`. Logging the TypeError alone tells you nothing, so
+ * unwrap it.
+ */
+export function describeFetchError(err: unknown, url: string): string {
+  const outer = err as { message?: string; cause?: unknown };
+  const cause = outer?.cause as { code?: string; message?: string } | undefined;
+  if (cause?.code === "ECONNREFUSED") {
+    return `cannot reach the orchestrator at ${url} (connection refused) — is it running?`;
+  }
+  if (cause?.code) {
+    return `request to ${url} failed: ${cause.code}${cause.message ? ` — ${cause.message}` : ""}`;
+  }
+  return `request to ${url} failed: ${outer?.message ?? String(err)}`;
 }

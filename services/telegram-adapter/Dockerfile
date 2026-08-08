@@ -18,7 +18,7 @@ COPY packages/speech packages/speech
 COPY services/telegram-adapter services/telegram-adapter
 RUN pnpm --filter @jarvis/telegram-adapter... run build
 
-RUN pnpm --filter @jarvis/telegram-adapter --prod deploy /deploy
+RUN pnpm --filter @jarvis/telegram-adapter --prod --legacy deploy /deploy
 
 FROM base AS runtime
 ENV NODE_ENV=production

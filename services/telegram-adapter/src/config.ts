@@ -10,11 +10,18 @@ export const envSchema = z
     TELEGRAM_BOT_TOKEN: z.string().min(20, "looks too short to be a bot token"),
 
     /**
-     * "webhook" is the production path. "polling" exists so the adapter can be
-     * verified before DynDNS, port forwarding and TLS are in place; it is
-     * refused in production so nobody ships it by accident.
+     * Both modes are supported deployments; neither is a dev-only hack.
+     *
+     * "polling" needs no inbound reachability at all, which is the only thing
+     * that works behind DS-Lite/CGNAT unless the ISP forwards one of the four
+     * ports Telegram accepts (80, 88, 443, 8443). Verified against the live
+     * API: any other port is rejected outright with
+     *   "bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443"
+     *
+     * "webhook" scales better and avoids holding an open request, but requires
+     * a publicly reachable HTTPS endpoint on one of those ports.
      */
-    TELEGRAM_MODE: z.enum(["webhook", "polling"]).default("webhook"),
+    TELEGRAM_MODE: z.enum(["webhook", "polling"]).default("polling"),
 
     /** Public HTTPS URL Telegram delivers to. Required in webhook mode. */
     TELEGRAM_WEBHOOK_URL: z.string().url().optional(),
@@ -62,14 +69,25 @@ export const envSchema = z
     message: "TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_MODE=webhook",
     path: ["TELEGRAM_WEBHOOK_SECRET"],
   })
-  .refine((v) => !(v.NODE_ENV === "production" && v.TELEGRAM_MODE === "polling"), {
-    message: "polling is a development-only mode and is refused in production",
-    path: ["TELEGRAM_MODE"],
-  })
   .refine((v) => v.TELEGRAM_MODE !== "webhook" || v.TELEGRAM_WEBHOOK_URL?.startsWith("https://"), {
     message: "Telegram only delivers webhooks over HTTPS",
     path: ["TELEGRAM_WEBHOOK_URL"],
   })
+  // Fail here rather than letting Telegram reject setWebhook at startup with a
+  // message nobody reads. Port is implicit 443 when the URL omits it.
+  .refine(
+    (v) => {
+      if (v.TELEGRAM_MODE !== "webhook" || !v.TELEGRAM_WEBHOOK_URL) return true;
+      const port = new URL(v.TELEGRAM_WEBHOOK_URL).port;
+      return port === "" || ["80", "88", "443", "8443"].includes(port);
+    },
+    {
+      message:
+        "Telegram only delivers webhooks to ports 80, 88, 443 or 8443. " +
+        "If your ISP forwards a different range (common with DS-Lite), use TELEGRAM_MODE=polling.",
+      path: ["TELEGRAM_WEBHOOK_URL"],
+    },
+  )
   .refine((v) => v.TTS_ENGINE !== "local" || (Boolean(v.PIPER_BINARY) && Boolean(v.PIPER_MODEL)), {
     message:
       "local TTS needs PIPER_BINARY and PIPER_MODEL (see docs/telegram-setup.md), " +

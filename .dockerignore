@@ -1,0 +1,39 @@
+# Without this, `COPY packages packages` drags the host's node_modules into the
+# image and overwrites the Linux install that pnpm just did — on Windows that
+# means copying junctions and .exe binaries into a Debian container. It also
+# makes builds enormously slower.
+node_modules
+**/node_modules
+
+# Build output is produced inside the image.
+dist
+**/dist
+.turbo
+**/.turbo
+*.tsbuildinfo
+
+# Secrets and local state must never enter an image layer.
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Locally downloaded speech binaries/models — platform-specific and large.
+# Piper is mounted from the host at runtime; Whisper weights live on a volume.
+.local/
+
+.git
+.github
+.vscode
+.idea
+logs/
+*.log
+tmp/
+data/
+
+# Docs and tests are not needed to run the services.
+docs/
+**/test/
+README.md

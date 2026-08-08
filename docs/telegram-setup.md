@@ -78,73 +78,94 @@ machine — a deliberate choice, which is why it is not the default.
 
 ---
 
-## 3. Public reachability (webhook)
+## 3. Reachability: polling or webhook
 
-Telegram delivers over HTTPS to a public address. The chosen route is DynDNS on
-the FritzBox plus a port forward, rather than a third-party tunnel, so
-reachability does not depend on someone else's service.
+**The current deployment uses polling, and that is a deliberate choice.**
 
-### 3.1 Check for CGNAT / DS-Lite first
+### 3.1 The constraint that decides this
 
-**Do this before anything else.** Many German connections no longer hand out a
-public IPv4; port forwarding then silently does nothing.
+Telegram delivers webhooks to **four ports only**. Verified against the live API:
 
-FritzBox → *Internet → Online-Monitor*. If the shown IPv4 starts with `100.64.`
-– `100.127.`, or the connection is labelled DS-Lite, you have no public IPv4.
-Options: ask your ISP for a public IPv4 (often free on request), or run the
-webhook over IPv6 only — but then the `TELEGRAM_IP_ALLOWLIST` check must be
-turned off, because it only understands IPv4.
-
-### 3.2 DynDNS
-
-FritzBox → *Internet → Freigaben → DynDNS → Benutzerdefiniert*. You need a
-domain whose DNS provider offers an update URL — desec.io, dynv6 and Cloudflare
-all work. Enter the update URL, domain, username and password from that provider.
-
-Verify from outside your network that the name resolves to your current IP.
-
-### 3.3 Port forwarding
-
-FritzBox → *Internet → Freigaben → Portfreigaben*, forwarding to the Mini-PC:
-
-| Port | Why |
-|---|---|
-| 443 | Telegram delivers here |
-| 80 | Let's Encrypt HTTP-01 challenge (can be closed afterwards if you switch to DNS-01) |
-
-### 3.4 TLS via a local Nginx Proxy Manager
-
-Run a second NPM instance on the Mini-PC — the one on Hetzner cannot issue a
-certificate for a name that points at your home IP. Add a proxy host for your
-DynDNS name forwarding to `127.0.0.1:8081`, and request a Let's Encrypt
-certificate for it.
-
-**Firewall:** only NPM may listen on 80 and 443. The adapter and the
-orchestrator bind to loopback and are reachable only through the proxy. On the
-Mini-PC:
-
-```bash
-sudo ufw default deny incoming
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
+```
+$ curl -X POST .../setWebhook -d '{"url":"https://example.de:6892/hook", ...}'
+{"ok":false,"error_code":400,
+ "description":"Bad Request: bad webhook: Webhook can be set up only on ports 80, 88, 443 or 8443"}
 ```
 
-Verify nothing else is exposed: `sudo ss -tlnp | grep -v 127.0.0.1`.
+This connection is **DS-Lite**: no public IPv4, and the ISP's port-forwarding
+product assigns a fixed range (currently 6892–6911). None of those are 80, 88,
+443 or 8443, so a webhook pointed at the home IPv4 is rejected by Telegram
+before a single packet is sent. No amount of DynDNS or certificate work changes
+that.
 
-### 3.5 Switch the adapter to webhook mode
+The adapter validates this at startup so the failure is a clear config error
+rather than a confusing `setWebhook` rejection.
+
+### 3.2 Polling — what is running now
+
+```bash
+TELEGRAM_MODE=polling
+```
+
+No inbound reachability at all: no DynDNS, no port forward, no certificate, no
+firewall exposure. The adapter opens an outbound long-poll and Telegram answers
+it the moment a message arrives.
+
+The trade-offs are real but small here:
+
+| | Impact |
+|---|---|
+| Latency | Negligible — `getUpdates` returns immediately on a new message, it does not wait out the timeout |
+| Scaling | Only one process may poll a given bot. Fine for a personal agent, wrong for a fleet |
+| Connections | One long-lived outbound request, re-opened every 30 s |
+| Restart | The update offset lives in memory, so a restart may re-fetch a message Telegram still has queued |
+
+For a single-user personal agent none of these matter. Polling is not a
+downgrade from webhook here — it is the mode that fits the network.
+
+### 3.3 If you want a webhook later
+
+Three routes, in order of how well they fit the stated principles:
+
+**a) Through your own Hetzner VPS (recommended when a Mini-PC exists).**
+The VPS has a public IPv4 and already runs Nginx Proxy Manager. Terminate TLS
+there on 443, and forward to the home machine over a WireGuard link. This is not
+a third-party tunnel — it is your own server, which was the actual objection to
+Cloudflare Tunnel. Cost: a VPN to maintain, and reachability now depends on
+Hetzner being up.
+
+**b) IPv6.** DS-Lite gives you native, unrestricted IPv6 — the port limitation
+only applies to the shared IPv4. An AAAA record plus an IPv6 firewall rule for
+port 443 would work *if* Telegram delivers over IPv6. **Unverified**: test it
+with a throwaway endpoint before building on it. If it does work, note that
+`TELEGRAM_IP_ALLOWLIST` must be set to `false`, because that check only
+understands IPv4 and would drop every delivery.
+
+**c) Ask the ISP for a public IPv4.** Often available on request, sometimes for
+a small fee. Restores the original DynDNS plan in full.
+
+### 3.4 If you switch to webhook
 
 ```bash
 TELEGRAM_MODE=webhook
-TELEGRAM_WEBHOOK_URL=https://jarvis.example.de
+TELEGRAM_WEBHOOK_URL=https://jarvis.example.de   # port must be 80, 88, 443 or 8443
 TELEGRAM_WEBHOOK_PATH=/telegram/webhook-<random>
 TELEGRAM_WEBHOOK_SECRET=<32+ chars, A-Za-z0-9_- only>
 ```
 
-The adapter registers the webhook itself at startup and logs
-`getWebhookInfo`. If `last_error_message` is populated, Telegram is reaching
-something it doesn't like — usually a certificate problem or a 404 from a
-mismatched path.
+The adapter registers the webhook itself at startup and logs `getWebhookInfo`.
+A populated `last_error_message` means Telegram reached something it did not
+like — usually a certificate problem or a 404 from a mismatched path.
+
+Whatever terminates TLS must be the only thing listening on 80/443; the adapter
+and orchestrator bind to loopback. On a Linux host:
+
+```bash
+sudo ufw default deny incoming
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+sudo ufw enable
+sudo ss -tlnp | grep -v 127.0.0.1   # nothing unexpected should appear
+```
 
 ---
 

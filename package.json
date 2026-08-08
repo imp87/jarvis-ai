@@ -8,12 +8,12 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "clean": "turbo run clean && rimraf node_modules",
     "db:migrate": "pnpm --filter @jarvis/db run migrate",
-    "orchestrator:dev": "pnpm --filter @jarvis/orchestrator run dev"
+    "orchestrator:dev": "pnpm --filter @jarvis/orchestrator run dev",
+    "telegram:dev": "pnpm --filter @jarvis/telegram-adapter run dev"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

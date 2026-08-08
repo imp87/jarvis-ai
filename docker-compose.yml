@@ -32,8 +32,8 @@ services:
       DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis
       ORCHESTRATOR_PORT: 8080
       # Everything below comes from the repo-root .env — never hardcode secrets here.
-      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required}
-      SERVICE_TOKEN: ${SERVICE_TOKEN:?SERVICE_TOKEN is required}
+      MASTER_KEY: ${MASTER_KEY:-}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
@@ -63,9 +63,10 @@ services:
       NODE_ENV: production
       TELEGRAM_ADAPTER_PORT: 8081
       ORCHESTRATOR_URL: http://orchestrator:8080
-      SERVICE_TOKEN: ${SERVICE_TOKEN:?SERVICE_TOKEN is required}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
-      TELEGRAM_MODE: ${TELEGRAM_MODE:-webhook}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # polling needs no inbound reachability — see docs/telegram-setup.md §3.
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-polling}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/telegram/webhook}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}

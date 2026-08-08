@@ -87,6 +87,41 @@ kind of object. See [docs/architecture.md](docs/architecture.md#why-a-monorepo).
 | `pnpm test` | Run unit tests |
 | `pnpm db:migrate` | Apply migrations (idempotent, checksummed) |
 | `pnpm orchestrator:dev` | Run the orchestrator with hot reload |
+| `pnpm telegram:dev` | Run the Telegram adapter with hot reload |
+
+**Run the services in separate terminals, not via `turbo run dev`.** Turbo
+multiplexes persistent tasks into one output stream (or a TUI pane per task),
+so when one service fails to start you get silence rather than its error — and
+on Windows the orchestrator did not come up under Turbo at all in testing.
+Turbo is worth having for `build`, where the caching pays off; for running two
+long-lived processes it only hides information you need.
+
+### Running in Docker (the deployment target)
+
+```bash
+docker compose build
+docker compose up -d postgres orchestrator
+```
+
+Migrations from the image, so a server needs no Node or pnpm installed:
+
+```bash
+docker compose run --rm --no-deps orchestrator node --input-type=module -e "
+import { createPool, runMigrations } from '@jarvis/db';
+const pool = createPool({ connectionString: process.env.DATABASE_URL, max: 2 });
+const { applied } = await runMigrations(pool, {
+  variables: { EMBEDDING_DIM: Number(process.env.EMBEDDING_DIM ?? 1536) },
+  log: (m) => console.log('[migrate]', m),
+});
+console.log(applied.length ? 'applied: ' + applied.join(', ') : 'already up to date');
+await pool.end();
+"
+```
+
+The `telegram-adapter` image expects a **Linux** Piper build mounted at
+`/opt/piper` (`PIPER_HOST_DIR`). The `.local/piper` in this repo is whatever
+your dev machine downloaded — on Windows that is a `.exe` and will not run in
+the container. Either mount Linux binaries or set `TTS_ENGINE=openai`.
 
 ## Configuration
 

@@ -26,8 +26,10 @@ no wake-word device.
 - **STT/TTS ship as a shared `packages/speech`, not inside the adapter.** The
   voice-call pipeline and any future wake-word client need exactly the same two
   operations; implementing them per channel means three copies to keep in sync.
-- Public webhook reachability via DynDNS on the FritzBox rather than a
-  third-party tunnel — see [Open decision 1](#1-deployment-all-local-vs-hybrid).
+- Reachability via **long polling**, not a webhook. The connection is DS-Lite
+  and the ISP's forwarded port range (6892–6911) contains none of the four ports
+  Telegram will deliver to (80, 88, 443, 8443), verified against the live API.
+  See [docs/telegram-setup.md](telegram-setup.md#3-reachability-polling-or-webhook).
 
 Discord follows as the second adapter — same interface, mechanical work.
 
@@ -120,9 +122,10 @@ Two later decisions have collapsed this question:
   orchestrator runs. The strongest argument for hybrid was "the agent must still
   be able to call me when the power is out at home" — with a FritzBox registrar
   that guarantee cannot be delivered at any price.
-- **Phase 2 puts the Telegram webhook at home.** Reachability via DynDNS plus a
-  router port forward means Telegram delivers to the home IP, so the adapter
-  lives there too.
+- **Phase 2 needs no inbound reachability at all.** DS-Lite plus an ISP port
+  range that excludes every port Telegram accepts killed the DynDNS webhook
+  plan; the adapter long-polls instead. That removes reachability as an argument
+  in either direction — polling works identically at home or on Hetzner.
 
 That makes **all-local on the Mini-PC** the coherent answer, and hybrid mostly
 pointless: it would add a VPN and a second host while still failing on exactly

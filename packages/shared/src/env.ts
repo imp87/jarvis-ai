@@ -42,7 +42,15 @@ export function loadEnv<T extends z.ZodTypeAny>(
   schema: T,
   source: Record<string, string | undefined> = process.env,
 ): z.infer<T> {
-  const result = schema.safeParse(source);
+  // Treat an empty value as absent. Docker Compose substitutes `${FOO:-}` to an
+  // empty string for anything not in .env, which would otherwise fail every
+  // optional `.url()` field and defeat every `.default()`.
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value.trim() !== "") cleaned[key] = value;
+  }
+
+  const result = schema.safeParse(cleaned);
   if (!result.success) {
     const issues = result.error.issues
       .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)

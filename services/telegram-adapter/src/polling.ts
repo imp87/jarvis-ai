@@ -3,9 +3,14 @@ import type { UpdateHandler } from "./handler.js";
 import type { TelegramClient } from "./telegram.js";
 
 /**
- * Long-polling loop. Development only — the production path is the webhook.
- * It exists so the adapter can be verified end to end against a real bot before
- * DynDNS, the port forward and the certificate are in place.
+ * Long-polling loop. A supported deployment mode, not a development fallback:
+ * it needs no inbound reachability, which behind DS-Lite/CGNAT is often the
+ * only option — Telegram delivers webhooks exclusively to ports 80, 88, 443 and
+ * 8443, and ISP port ranges rarely include any of them.
+ *
+ * Latency is not the trade-off people expect: getUpdates returns the moment a
+ * message arrives rather than waiting out the timeout. What you give up is
+ * horizontal scaling (one poller per bot) and an always-open outbound request.
  *
  * Telegram refuses getUpdates while a webhook is registered, so the caller must
  * deleteWebhook first.

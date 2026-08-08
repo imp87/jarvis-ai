@@ -48,6 +48,18 @@ const handler = new UpdateHandler(telegram, orchestrator, speech, logger, {
 const me = await telegram.getMe();
 logger.info({ bot: me.username, id: me.id, mode: env.TELEGRAM_MODE }, "connected to Telegram");
 
+// Without the orchestrator this adapter can do nothing but apologise to the
+// user, so say so at startup rather than on their first message.
+if (!(await orchestrator.waitUntilReachable())) {
+  logger.error(
+    { orchestratorUrl: env.ORCHESTRATOR_URL },
+    "orchestrator is not reachable — every incoming message will fail until it is up. " +
+      "Start it with `pnpm orchestrator:dev` and check that ORCHESTRATOR_URL points at it.",
+  );
+} else {
+  logger.info({ orchestratorUrl: env.ORCHESTRATOR_URL }, "orchestrator reachable");
+}
+
 // Fail fast on a missing Piper binary rather than on the first voice reply.
 if (env.TTS_ENGINE === "local") {
   const tts = speech.tts as { check?: () => Promise<void> };
@@ -86,6 +98,11 @@ if (env.TELEGRAM_MODE === "webhook") {
 } else {
   // getUpdates is refused while a webhook is registered.
   await telegram.deleteWebhook();
+  logger.info(
+    { reason: "no inbound reachability required" },
+    "running in long-polling mode — supported deployment, but only one instance " +
+      "may poll a given bot at a time",
+  );
   polling = new PollingLoop(telegram, handler, logger);
   polling.start();
 }
