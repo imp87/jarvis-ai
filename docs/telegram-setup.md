@@ -67,6 +67,29 @@ sudo curl -L -O $BASE/de_DE-thorsten-medium.onnx.json
 Then set `PIPER_BINARY`, `PIPER_MODEL` and `PIPER_SAMPLE_RATE=22050`. The
 adapter checks both paths at startup and refuses to run if either is missing.
 
+**Verified inside the `node:24-slim` container** (the adapter's base image):
+every shared library the Piper release needs resolves without installing extra
+Debian packages, and synthesis runs at a real-time factor of ~0.05 — roughly 19×
+faster than playback. Linux is Piper's primary target and is noticeably faster
+than the Windows build.
+
+> **Extract the Linux tarball on Linux.** It contains symlinks
+> (`libespeak-ng.so` → `libespeak-ng.so.1`), which Windows refuses to create
+> without elevated privileges — `tar` fails halfway and leaves an unusable
+> directory. Download and unpack on the server, or inside a container.
+
+The voice model (`.onnx` + `.onnx.json`) is platform-independent: the same files
+work on Windows, Linux and a Raspberry Pi.
+
+### Whisper model cache
+
+The first transcription downloads ~280 MB of weights. `WHISPER_CACHE_DIR` must
+point at persistent storage, or every container restart re-downloads them.
+Compose already mounts the `speech-models` volume at `/models` for this.
+
+Measured in the container: **20.4 s cold, 2.5 s warm.** The adapter loads the
+model at startup, so the cost lands on boot rather than on the first voice note.
+
 > The `.onnx.json` must sit next to the `.onnx`; Piper reads the sample rate and
 > phoneme map from it. `PIPER_SAMPLE_RATE` must match the `audio.sample_rate`
 > field inside that JSON, since Piper writes headerless PCM and does not report

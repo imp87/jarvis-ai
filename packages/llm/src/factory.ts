@@ -43,7 +43,9 @@ export function buildProviders(options: BuildProvidersOptions): {
       "anthropic",
       new AnthropicProvider({
         apiKey: options.anthropicApiKey,
-        ...(options.defaults?.anthropicModel ? { model: options.defaults.anthropicModel } : {}),
+        ...(options.defaults?.anthropicModel
+          ? { model: options.defaults.anthropicModel }
+          : {}),
       }),
     );
   }
@@ -55,7 +57,7 @@ export function buildProviders(options: BuildProvidersOptions): {
         name: "openai",
         baseUrl: "https://api.openai.com/v1",
         apiKey: options.openaiApiKey,
-        model: options.defaults?.openaiModel ?? "gpt-4.1",
+        model: options.defaults?.openaiModel ?? "gpt-5.6-luna",
       }),
     );
   }
@@ -78,7 +80,9 @@ export function buildProviders(options: BuildProvidersOptions): {
   }
 
   const router = new LlmRouter(providers, options.routing, options.logger, {
-    ...(options.maxCallsPerMinute ? { maxCallsPerMinute: options.maxCallsPerMinute } : {}),
+    ...(options.maxCallsPerMinute
+      ? { maxCallsPerMinute: options.maxCallsPerMinute }
+      : {}),
   });
 
   return { providers, router };

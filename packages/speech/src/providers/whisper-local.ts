@@ -56,12 +56,22 @@ export class WhisperLocalStt implements SttProvider {
       this.options.logger?.info({ model: this.model }, "loading local Whisper model (first use)");
       // Imported lazily so a deployment that only uses cloud speech never pays
       // the onnxruntime load cost.
-      this.pipelinePromise = import("@huggingface/transformers").then((mod) =>
-        mod.pipeline("automatic-speech-recognition", this.model, {
+      this.pipelinePromise = import("@huggingface/transformers").then((mod) => {
+        // In Node the library still probes a browser-style cache inside its own
+        // package directory, which a container running as a non-root user cannot
+        // write. The filesystem cache below is the one that matters; turning this
+        // off avoids an alarming EACCES on every single startup.
+        const env = mod.env as { useBrowserCache?: boolean; cacheDir?: string };
+        env.useBrowserCache = false;
+        // Also set it globally: some internal paths read env.cacheDir rather
+        // than the per-call cache_dir, and default to a directory inside the
+        // package that a non-root container user cannot create.
+        if (this.options.cacheDir) env.cacheDir = this.options.cacheDir;
+        return mod.pipeline("automatic-speech-recognition", this.model, {
           ...(this.options.dtype ? { dtype: this.options.dtype } : {}),
           ...(this.options.cacheDir ? { cache_dir: this.options.cacheDir } : {}),
-        }),
-      );
+        });
+      });
     }
     return (await this.pipelinePromise) as (
       input: Float32Array,

@@ -25,12 +25,12 @@
   "profiles": {
     "chat": {
       "provider": "openai",
-      "model": "gpt-4.1",
+      "model": "gpt-5.6-luna",
       "maxTokens": 4096
     },
     "agent": {
       "provider": "openai",
-      "model": "gpt-4.1",
+      "model": "gpt-5.6-luna",
       "maxTokens": 8192
     },
     "classify": {

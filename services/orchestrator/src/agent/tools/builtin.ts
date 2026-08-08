@@ -15,9 +15,14 @@ export function buildBuiltinTools(deps: {
     {
       name: "memory_search",
       description:
-        "Search long-term memory for relevant past notes, call transcripts, email summaries " +
-        "and conversation snippets. Use this when the answer may depend on something said or " +
-        "decided earlier that is not in the current conversation.",
+        "Search things the user told you in earlier conversations, plus call transcripts and " +
+        "email summaries. Use it when the answer depends on something said or decided in a " +
+        "past conversation.\n\n" +
+        // Without this, "Projektnotizen"/"notes" pulls the model here even when
+        // the user plainly means a file, because both read as "notes".
+        "This does NOT contain files or documents. If the user refers to a file, a directory, " +
+        "a document or anything with a name and an extension, use the file tools instead — " +
+        "even when they call it a note.",
       source: "builtin",
       sideEffects: false,
       inputSchema: {

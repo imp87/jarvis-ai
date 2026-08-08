@@ -146,6 +146,7 @@ export async function connectRegisteredMcpServers(
     }
     return {
       name: row.name,
+      description: row.description,
       transport: row.transport,
       url: row.url,
       command: row.command,

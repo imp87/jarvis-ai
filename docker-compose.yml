@@ -47,6 +47,12 @@ services:
       MAX_CALLS_PER_DAY: ${MAX_CALLS_PER_DAY:-8}
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
       VOICE_PIPELINE_URL: ${VOICE_PIPELINE_URL:-}
+      # stdio MCP servers run inside this container, so their paths are container
+      # paths. Registry rows store ${MCP_WORKSPACE_DIR} rather than a literal
+      # path, which is what lets one row work on a dev host and here.
+      MCP_WORKSPACE_DIR: /workspace
+    volumes:
+      - ${MCP_WORKSPACE_HOST_DIR:-./.local/workspace}:/workspace
     ports:
       # Also loopback-only: Nginx Proxy Manager terminates TLS and forwards here.
       # Nothing in this stack should be directly internet-facing.
