@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ForbiddenError, NotFoundError, inboundMessageSchema } from "@jarvis/shared";
+import {
+  ForbiddenError,
+  NotFoundError,
+  channelNameSchema,
+  inboundMessageSchema,
+} from "@jarvis/shared";
 import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
 
@@ -38,6 +43,8 @@ export function messageRoutes(container: Container): Router {
         : await repos.conversations.findOrCreateActive(user.id);
       if (!conversation) throw new NotFoundError("conversation not found");
 
+      const settings = await repos.settings.get(user.id, input.channel);
+
       const result = await agent.run({
         userId: user.id,
         ownerName: user.displayName,
@@ -49,14 +56,47 @@ export function messageRoutes(container: Container): Router {
       res.json({
         conversationId: result.conversationId,
         reply: result.reply,
-        // The adapter decides how to render this; the orchestrator only echoes
-        // the user's preference back so the adapter needn't track it.
-        asVoice: input.preferVoiceReply,
+        // The stored preference decides how the reply is rendered — deliberately
+        // NOT mirrored from the incoming message. Sending a voice note does not
+        // imply wanting one back; that is a setting, edited in the admin UI.
+        replyFormat: settings.replyFormat,
+        voiceId: settings.voiceId,
+        language: settings.language,
         diagnostics: {
           steps: result.steps,
           toolCalls: result.toolCalls,
           stoppedBecause: result.stoppedBecause,
         },
+      });
+    }),
+  );
+
+  /**
+   * Cheap identity pre-check for adapters. A channel adapter calls this before
+   * doing expensive work — downloading and transcribing a voice note — so an
+   * unregistered stranger costs a database lookup rather than a transcription.
+   * The authoritative gate is still the inbound handler above.
+   */
+  router.get(
+    "/v1/identities/resolve",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({ channel: channelNameSchema, channelUserId: z.string().min(1) })
+        .parse(req.query);
+      const user = await repos.identities.findUserByChannelIdentity(
+        query.channel,
+        query.channelUserId,
+      );
+      if (!user) {
+        res.status(404).json({
+          error: { code: "not_registered", message: "this channel identity is not registered" },
+        });
+        return;
+      }
+      res.json({
+        userId: user.id,
+        displayName: user.displayName,
+        settings: await repos.settings.get(user.id, query.channel),
       });
     }),
   );

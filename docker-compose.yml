@@ -52,5 +52,42 @@ services:
       # Nothing in this stack should be directly internet-facing.
       - "127.0.0.1:8080:8080"
 
+  telegram-adapter:
+    build:
+      context: .
+      dockerfile: services/telegram-adapter/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    environment:
+      NODE_ENV: production
+      TELEGRAM_ADAPTER_PORT: 8081
+      ORCHESTRATOR_URL: http://orchestrator:8080
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?SERVICE_TOKEN is required}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-webhook}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/telegram/webhook}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_IP_ALLOWLIST: ${TELEGRAM_IP_ALLOWLIST:-true}
+      STT_ENGINE: ${STT_ENGINE:-local}
+      TTS_ENGINE: ${TTS_ENGINE:-local}
+      WHISPER_MODEL: ${WHISPER_MODEL:-Xenova/whisper-base}
+      # Keep the model cache on a volume; otherwise every container rebuild
+      # re-downloads several hundred megabytes of weights.
+      WHISPER_CACHE_DIR: /models/whisper
+      PIPER_BINARY: ${PIPER_BINARY:-/opt/piper/piper}
+      PIPER_MODEL: ${PIPER_MODEL:-/opt/piper/de_DE-thorsten-medium.onnx}
+      PIPER_SAMPLE_RATE: ${PIPER_SAMPLE_RATE:-22050}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - speech-models:/models
+      # Piper binary and voice models from the host — see docs/telegram-setup.md.
+      - ${PIPER_HOST_DIR:-./.local/piper}:/opt/piper:ro
+    ports:
+      # Loopback only; the local Nginx Proxy Manager terminates TLS in front.
+      - "127.0.0.1:8081:8081"
+
 volumes:
   postgres-data:
+  speech-models:

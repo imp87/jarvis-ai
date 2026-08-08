@@ -3,7 +3,11 @@ packages:
   - "services/*"
   - "apps/*"
 
-# tsx needs esbuild's postinstall to fetch its native binary. Nothing else is
-# allowed to run install scripts.
+# Packages whose postinstall fetches a required native binary. Everything else
+# is blocked from running install scripts.
 onlyBuiltDependencies:
-  - esbuild
+  - esbuild # tsx
+  - ffmpeg-static # bundled ffmpeg for @jarvis/speech
+  - onnxruntime-node # local Whisper inference
+  - sharp # pulled in by @huggingface/transformers
+  - protobufjs

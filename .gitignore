@@ -23,3 +23,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Locally downloaded speech models/binaries (see docs/telegram-setup.md)
+.local/

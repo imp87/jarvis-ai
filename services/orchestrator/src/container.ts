@@ -4,6 +4,7 @@ import {
   IdentityRepository,
   MemoryRepository,
   RegistryRepository,
+  SettingsRepository,
   createPool,
   type Pool,
 } from "@jarvis/db";
@@ -28,6 +29,7 @@ export interface Container {
     memories: MemoryRepository;
     registry: RegistryRepository;
     calls: CallRepository;
+    settings: SettingsRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -50,6 +52,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     memories: new MemoryRepository(pool),
     registry: new RegistryRepository(pool),
     calls: new CallRepository(pool),
+    settings: new SettingsRepository(pool),
   };
 
   const { router } = buildProviders({

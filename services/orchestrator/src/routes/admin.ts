@@ -68,6 +68,36 @@ export function adminRoutes(container: Container): Router {
     }),
   );
 
+  // --- Per-channel settings ------------------------------------------------
+  //
+  // Data layer for component 8's UI. The reply format lives here rather than in
+  // the adapter so it is editable without a redeploy, and so every channel
+  // answers the same way about it.
+
+  router.get(
+    "/v1/users/:id/settings",
+    asyncHandler(async (req, res) => {
+      const userId = z.string().uuid().parse(req.params["id"]);
+      res.json({ settings: await repos.settings.listForUser(userId) });
+    }),
+  );
+
+  router.put(
+    "/v1/users/:id/settings/:channel",
+    asyncHandler(async (req, res) => {
+      const userId = z.string().uuid().parse(req.params["id"]);
+      const channel = channelNameSchema.parse(req.params["channel"]);
+      const patch = z
+        .object({
+          replyFormat: z.enum(["text", "voice"]).optional(),
+          voiceId: z.string().max(128).nullable().optional(),
+          language: z.string().min(2).max(16).optional(),
+        })
+        .parse(req.body);
+      res.json({ settings: await repos.settings.upsert(userId, channel, patch) });
+    }),
+  );
+
   // --- Memory --------------------------------------------------------------
 
   router.post(

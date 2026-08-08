@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
+import path from "node:path";
 import { convertAudio } from "../audio.js";
 import {
   SpeechError,
@@ -13,12 +14,17 @@ const PROVIDER = "piper-local";
 export interface PiperOptions {
   /** Path to the piper executable. */
   binaryPath: string;
-  /** Path to the voice model (.onnx). Its .onnx.json must sit next to it. */
+  /** Default voice model (.onnx). Its .onnx.json must sit next to it. */
   modelPath: string;
   /**
+   * Directory holding additional voice models, so a per-user `voice` setting can
+   * name one (e.g. "de_DE-thorsten-medium"). Omit to allow only the default.
+   */
+  voicesDir?: string;
+  /**
    * Output rate of the voice model. Piper writes headerless PCM at the model's
-   * native rate and does not tell us what that is, so it has to be configured.
-   * The de_DE-thorsten voices are 22050 Hz.
+   * native rate and does not report it, so it must be configured. The
+   * de_DE-thorsten voices are 22050 Hz.
    */
   modelSampleRate?: number;
   timeoutMs?: number;
@@ -31,7 +37,7 @@ export interface PiperOptions {
  *
  * Setup is two downloads — see docs/telegram-setup.md. The same binary will
  * serve the phone pipeline later, which is why this lives in `@jarvis/speech`
- * and not in the Telegram adapter.
+ * rather than in the Telegram adapter.
  */
 export class PiperTts implements TtsProvider {
   readonly name = PROVIDER;
@@ -45,37 +51,50 @@ export class PiperTts implements TtsProvider {
   }
 
   /**
-   * Verify the binary and model exist. Call at startup: discovering a missing
-   * voice model when someone sends their first voice note is a bad trade.
+   * Verify the binary and default model exist. Call at startup: discovering a
+   * missing voice model when the first voice note arrives is a bad trade.
    */
   async check(): Promise<void> {
-    for (const [label, path] of [
+    for (const [label, target] of [
       ["piper binary", this.options.binaryPath],
       ["piper voice model", this.options.modelPath],
     ] as const) {
       try {
-        await access(path);
+        await access(target);
       } catch {
-        throw new SpeechError(`${label} not found at ${path}`, PROVIDER);
+        throw new SpeechError(`${label} not found at ${target}`, PROVIDER);
       }
     }
+  }
+
+  /**
+   * Resolve a requested voice to a model file. Voice names are restricted to a
+   * safe character set and joined against `voicesDir`, so a stored setting can
+   * never point at an arbitrary path.
+   */
+  private resolveModel(voice: string | undefined): string {
+    if (!voice) return this.options.modelPath;
+    if (!this.options.voicesDir) {
+      throw new SpeechError(
+        `voice "${voice}" requested but no voicesDir is configured`,
+        PROVIDER,
+      );
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(voice)) {
+      throw new SpeechError(`invalid voice name "${voice}"`, PROVIDER);
+    }
+    const file = voice.endsWith(".onnx") ? voice : `${voice}.onnx`;
+    return path.join(this.options.voicesDir, file);
   }
 
   async synthesize(text: string, options: SynthesisOptions): Promise<AudioClip> {
     const trimmed = text.trim();
     if (trimmed.length === 0) throw new SpeechError("nothing to synthesise", PROVIDER);
 
-    const args = [
-      "--model",
-      this.options.voiceModelFor(options) ?? this.options.modelPath,
-      // Headerless PCM on stdout: no temp file, no WAV header to strip.
-      "--output_raw",
-    ];
-
+    // Headerless PCM on stdout: no temp file, no WAV header to strip.
+    const args = ["--model", this.resolveModel(options.voice), "--output_raw"];
     const raw = await this.run(args, trimmed);
-    if (raw.length === 0) {
-      throw new SpeechError("piper produced no audio", PROVIDER);
-    }
+    if (raw.length === 0) throw new SpeechError("piper produced no audio", PROVIDER);
 
     return convertAudio(
       { data: raw, encoding: "raw_pcm16", sampleRate: this.modelSampleRate, channels: 1 },
@@ -124,17 +143,3 @@ export class PiperTts implements TtsProvider {
     });
   }
 }
-
-declare module "./piper-local.js" {
-  // Placeholder to document the extension point below.
-}
-
-/**
- * Voice selection maps to a model file, so a per-user `voiceId` is a path or a
- * name resolved against a voices directory. Kept trivial until there is a
- * second German voice worth switching between.
- */
-Object.defineProperty(PiperTts.prototype, "voiceModelFor", {
-  value: undefined,
-  writable: true,
-});
