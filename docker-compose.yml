@@ -95,6 +95,64 @@ services:
       # Loopback only; the local Nginx Proxy Manager terminates TLS in front.
       - "127.0.0.1:8081:8081"
 
+  voice-pipeline:
+    build:
+      context: .
+      dockerfile: services/voice-pipeline/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    environment:
+      NODE_ENV: production
+      VOICE_PIPELINE_PORT: 8082
+      AUDIOSOCKET_PORT: 8090
+      ORCHESTRATOR_URL: http://orchestrator:8080
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+      SIP_CALLER_ID: ${SIP_CALLER_ID:-}
+      OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
+      VOICE_GREETING: ${VOICE_GREETING:-Hallo, hier ist Jarvis. Was kann ich für dich tun?}
+      VOICE_IDLE_HANGUP_MS: ${VOICE_IDLE_HANGUP_MS:-30000}
+      STT_ENGINE: ${STT_ENGINE:-local}
+      TTS_ENGINE: ${TTS_ENGINE:-local}
+      WHISPER_MODEL: ${WHISPER_MODEL:-Xenova/whisper-base}
+      WHISPER_CACHE_DIR: /models/whisper
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - speech-models:/models
+      # Shared with Asterisk: the pipeline writes call files, Asterisk dials them.
+      - asterisk-spool:/var/spool/asterisk
+    ports:
+      # Published on loopback so Asterisk can reach them when it runs with host
+      # networking (see below). Nothing else should be able to.
+      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:8090:8090"
+
+  asterisk:
+    build:
+      context: .
+      dockerfile: services/voice-pipeline/asterisk/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - voice-pipeline
+    # SIP and RTP do not survive Docker's NAT: the FritzBox is on the LAN, and
+    # RTP negotiates ports dynamically. Host networking is the only arrangement
+    # that reliably works.
+    #
+    # This is a Linux-only setup. On Docker Desktop for Windows or macOS the
+    # container does not share the host's LAN, so registration to fritz.box will
+    # not work there — run this on the Debian server.
+    network_mode: host
+    environment:
+      SIP_ADRESS: ${SIP_ADRESS:-fritz.box}
+      SIP_USER: ${SIP_USER:-}
+      SIP_PASSWORD: ${SIP_PASSWORD:-}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+      PIPELINE_HTTP: http://127.0.0.1:8082
+      PIPELINE_AUDIO: 127.0.0.1:8090
+    volumes:
+      - asterisk-spool:/var/spool/asterisk
+
 volumes:
   postgres-data:
   speech-models:
+  asterisk-spool:

@@ -83,6 +83,14 @@ Consequences worth stating explicitly, because they constrain other phases:
   is the better fit for a plain SIP registration (rather than a trunk), and
   whether an intermediate Asterisk/baresip is needed as the SIP endpoint.
 
+**Calls go both ways.** Beyond the original brief's outbound calls, the agent
+should also be reachable *by* phone: dialling its FritzBox extension starts a
+conversation. Registering as an IP telephone gives this almost for free — the
+extension can receive as well as place calls — but it doubles the surface:
+an inbound call needs answering, identifying the caller (anyone who can dial the
+number reaches it), and its own session handling. Speaker verification
+(phase 7) is what would eventually make that safe.
+
 The trigger side already exists: `POST /v1/actions/call` and the
 `place_phone_call` tool run the full policy check and write the call log. What
 is missing is the last hop — `VOICE_PIPELINE_URL` and something listening on it.

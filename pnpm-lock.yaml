@@ -205,6 +205,37 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  services/voice-pipeline:
+    dependencies:
+      '@jarvis/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@jarvis/speech':
+        specifier: workspace:*
+        version: link:../../packages/speech
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      express:
+        specifier: ^4.21.2
+        version: 4.22.2
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.11
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
 packages:
 
   '@anthropic-ai/sdk@0.68.0':

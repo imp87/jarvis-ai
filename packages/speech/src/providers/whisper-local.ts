@@ -1,3 +1,5 @@
+import path from "node:path";
+import { tmpdir } from "node:os";
 import type { Logger } from "@jarvis/shared";
 import { convertAudio, wavToFloat32 } from "../audio.js";
 import {
@@ -39,9 +41,12 @@ export class WhisperLocalStt implements SttProvider {
 
   private pipelinePromise: Promise<unknown> | undefined;
   private readonly model: string;
+  /** Always writable. Configure it for persistence; the default only survives a reboot. */
+  private readonly cacheDir: string;
 
   constructor(private readonly options: WhisperLocalOptions = {}) {
     this.model = options.model ?? "Xenova/whisper-base";
+    this.cacheDir = options.cacheDir ?? path.join(tmpdir(), "jarvis-whisper");
   }
 
   /** Load the model ahead of the first request, e.g. at service startup. */
@@ -56,20 +61,20 @@ export class WhisperLocalStt implements SttProvider {
       this.options.logger?.info({ model: this.model }, "loading local Whisper model (first use)");
       // Imported lazily so a deployment that only uses cloud speech never pays
       // the onnxruntime load cost.
+      const cacheDir = this.cacheDir;
       this.pipelinePromise = import("@huggingface/transformers").then((mod) => {
-        // In Node the library still probes a browser-style cache inside its own
-        // package directory, which a container running as a non-root user cannot
-        // write. The filesystem cache below is the one that matters; turning this
-        // off avoids an alarming EACCES on every single startup.
+        // Without an explicit cache directory the library writes inside its own
+        // package, which no container running as a non-root user can do — and
+        // that failure is fatal, not cosmetic. A writable default is therefore
+        // part of the provider rather than something each caller must remember;
+        // forgetting it once already cost a crash loop.
         const env = mod.env as { useBrowserCache?: boolean; cacheDir?: string };
         env.useBrowserCache = false;
-        // Also set it globally: some internal paths read env.cacheDir rather
-        // than the per-call cache_dir, and default to a directory inside the
-        // package that a non-root container user cannot create.
-        if (this.options.cacheDir) env.cacheDir = this.options.cacheDir;
+        // Some internal paths read env.cacheDir rather than the per-call option.
+        env.cacheDir = cacheDir;
         return mod.pipeline("automatic-speech-recognition", this.model, {
           ...(this.options.dtype ? { dtype: this.options.dtype } : {}),
-          ...(this.options.cacheDir ? { cache_dir: this.options.cacheDir } : {}),
+          cache_dir: cacheDir,
         });
       });
     }
