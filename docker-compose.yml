@@ -1,0 +1,56 @@
+services:
+  postgres:
+    # pgvector ships inside the Postgres image — no separate vector database.
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis}
+      POSTGRES_DB: jarvis
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Bound to loopback: the database is never reachable from the network,
+      # only from other containers and from this host.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis
+      ORCHESTRATOR_PORT: 8080
+      # Everything below comes from the repo-root .env — never hardcode secrets here.
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?SERVICE_TOKEN is required}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      QUIET_HOURS_START: ${QUIET_HOURS_START:-22:00}
+      QUIET_HOURS_END: ${QUIET_HOURS_END:-07:00}
+      QUIET_HOURS_TIMEZONE: ${QUIET_HOURS_TIMEZONE:-Europe/Berlin}
+      MAX_CALLS_PER_HOUR: ${MAX_CALLS_PER_HOUR:-2}
+      MAX_CALLS_PER_DAY: ${MAX_CALLS_PER_DAY:-8}
+      OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
+      VOICE_PIPELINE_URL: ${VOICE_PIPELINE_URL:-}
+    ports:
+      # Also loopback-only: Nginx Proxy Manager terminates TLS and forwards here.
+      # Nothing in this stack should be directly internet-facing.
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  postgres-data:

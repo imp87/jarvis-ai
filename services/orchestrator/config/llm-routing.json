@@ -1,0 +1,41 @@
+{
+  "$comment": [
+    "Routing rules live here, not in code (component 10). Call sites ask for an",
+    "intent ('chat', 'agent', 'classify'); this file decides which provider and",
+    "model serve it. Changing routing is a config edit and a restart, not a deploy.",
+    "",
+    "A profile that names a provider with no credentials configured is a startup",
+    "error, on purpose — silently falling back is how you end up paying Anthropic",
+    "rates for work you thought was running on the Mini-PC.",
+    "",
+    "To route cheap work to a local model once Ollama is reachable, set",
+    "OLLAMA_BASE_URL and add:",
+    "  \"local\": {",
+    "    \"provider\": \"ollama\", \"model\": \"qwen2.5:14b\", \"maxTokens\": 4096,",
+    "    \"fallbackProfile\": \"agent\"",
+    "  }",
+    "then point 'classify' at it. fallbackProfile matters: if the local model",
+    "cannot call tools reliably, tool-carrying requests are routed to a provider",
+    "that can rather than getting prose where a tool call was needed."
+  ],
+  "defaultProfile": "chat",
+  "profiles": {
+    "chat": {
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "maxTokens": 8000
+    },
+    "agent": {
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "effort": "high",
+      "maxTokens": 16000
+    },
+    "classify": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5",
+      "maxTokens": 1024
+    }
+  }
+}

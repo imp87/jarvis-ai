@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "services/*"
+  - "apps/*"
+
+# tsx needs esbuild's postinstall to fetch its native binary. Nothing else is
+# allowed to run install scripts.
+onlyBuiltDependencies:
+  - esbuild

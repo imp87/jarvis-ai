@@ -1,0 +1,154 @@
+import {
+  CallRepository,
+  ConversationRepository,
+  IdentityRepository,
+  MemoryRepository,
+  RegistryRepository,
+  createPool,
+  type Pool,
+} from "@jarvis/db";
+import { buildEmbeddingProvider, buildProviders, type LlmRouter } from "@jarvis/llm";
+import { McpManager, type McpServerConfig } from "@jarvis/mcp";
+import { createLogger, decryptSecret, parseMasterKey, type Logger } from "@jarvis/shared";
+import type { AppConfig } from "./config.js";
+import { AgentLoop } from "./agent/loop.js";
+import { buildBuiltinTools } from "./agent/tools/builtin.js";
+import { ToolRegistry } from "./agent/tools/registry.js";
+import { CallService } from "./services/calls.js";
+import { MemoryService } from "./services/memory.js";
+
+export interface Container {
+  config: AppConfig;
+  logger: Logger;
+  pool: Pool;
+  masterKey: Buffer;
+  repos: {
+    identities: IdentityRepository;
+    conversations: ConversationRepository;
+    memories: MemoryRepository;
+    registry: RegistryRepository;
+    calls: CallRepository;
+  };
+  router: LlmRouter;
+  mcp: McpManager;
+  tools: ToolRegistry;
+  memory: MemoryService;
+  calls: CallService;
+  agent: AgentLoop;
+  shutdown(): Promise<void>;
+}
+
+export async function buildContainer(config: AppConfig): Promise<Container> {
+  const { env } = config;
+  const logger = createLogger("orchestrator");
+  const masterKey = parseMasterKey(env.MASTER_KEY);
+
+  const pool = createPool({ connectionString: env.DATABASE_URL });
+  const repos = {
+    identities: new IdentityRepository(pool),
+    conversations: new ConversationRepository(pool),
+    memories: new MemoryRepository(pool),
+    registry: new RegistryRepository(pool),
+    calls: new CallRepository(pool),
+  };
+
+  const { router } = buildProviders({
+    routing: config.routing,
+    logger,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
+    ollamaBaseUrl: env.OLLAMA_BASE_URL,
+    maxCallsPerMinute: env.MAX_LLM_CALLS_PER_MINUTE,
+  });
+
+  const embeddings = buildEmbeddingProvider({
+    provider: env.EMBEDDING_PROVIDER,
+    model: env.EMBEDDING_MODEL,
+    dimensions: env.EMBEDDING_DIM,
+    openaiApiKey: env.OPENAI_API_KEY,
+    ollamaBaseUrl: env.OLLAMA_BASE_URL,
+  });
+
+  const memory = new MemoryService(repos.memories, embeddings, logger);
+
+  const calls = new CallService(
+    repos.calls,
+    {
+      quietHours: {
+        start: env.QUIET_HOURS_START,
+        end: env.QUIET_HOURS_END,
+        timezone: env.QUIET_HOURS_TIMEZONE,
+      },
+      maxPerHour: env.MAX_CALLS_PER_HOUR,
+      maxPerDay: env.MAX_CALLS_PER_DAY,
+      voicePipelineUrl: env.VOICE_PIPELINE_URL,
+      serviceToken: env.SERVICE_TOKEN,
+    },
+    logger,
+  );
+
+  const mcp = new McpManager(logger);
+  await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger);
+
+  const builtins = buildBuiltinTools({
+    memory,
+    calls,
+    ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
+  });
+  const tools = new ToolRegistry(builtins, mcp, repos.registry, masterKey, logger);
+
+  const agent = new AgentLoop(router, tools, memory, repos.conversations, logger, {
+    maxSteps: env.MAX_AGENT_STEPS,
+    timezone: env.QUIET_HOURS_TIMEZONE,
+  });
+
+  return {
+    config,
+    logger,
+    pool,
+    masterKey,
+    repos,
+    router,
+    mcp,
+    tools,
+    memory,
+    calls,
+    agent,
+    async shutdown() {
+      await mcp.disconnectAll();
+      await pool.end();
+    },
+  };
+}
+
+/** Reads MCP servers from the registry and connects them, decrypting secrets. */
+export async function connectRegisteredMcpServers(
+  mcp: McpManager,
+  registry: RegistryRepository,
+  masterKey: Buffer,
+  logger: Logger,
+): Promise<void> {
+  const rows = await registry.listMcpServers(true);
+  const configs: McpServerConfig[] = rows.map((row) => {
+    let secrets: Record<string, string> | undefined;
+    if (row.secretsEnc) {
+      try {
+        secrets = JSON.parse(decryptSecret(row.secretsEnc, masterKey)) as Record<string, string>;
+      } catch (err) {
+        logger.error(
+          { server: row.name, err: String(err) },
+          "could not decrypt MCP secrets; connecting without them",
+        );
+      }
+    }
+    return {
+      name: row.name,
+      transport: row.transport,
+      url: row.url,
+      command: row.command,
+      args: row.args,
+      ...(secrets ? { secrets } : {}),
+    };
+  });
+  await mcp.connectAll(configs);
+}
