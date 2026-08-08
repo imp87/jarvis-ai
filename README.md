@@ -33,8 +33,8 @@ pnpm build
 pnpm orchestrator:dev
 ```
 
-Check it: `curl localhost:8080/health`, then
-`curl -H "authorization: Bearer $SERVICE_TOKEN" localhost:8080/v1/status`.
+Check it: `curl localhost:18780/health`, then
+`curl -H "authorization: Bearer $SERVICE_TOKEN" localhost:18780/v1/status`.
 
 ### First user
 
@@ -43,16 +43,16 @@ Telegram user who finds the bot gets a 403, by design.
 
 ```bash
 TOKEN=...   # SERVICE_TOKEN from .env
-USER_ID=$(curl -s -X POST localhost:8080/v1/users \
+USER_ID=$(curl -s -X POST localhost:18780/v1/users \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"displayName":"Steve","isOwner":true}' | jq -r .id)
 
-curl -X POST localhost:8080/v1/identities \
+curl -X POST localhost:18780/v1/identities \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d "{\"userId\":\"$USER_ID\",\"channel\":\"telegram\",\"channelUserId\":\"<your telegram id>\"}"
 
 # Talk to the agent without any channel adapter:
-curl -X POST localhost:8080/v1/actions/agent \
+curl -X POST localhost:18780/v1/actions/agent \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d "{\"userId\":\"$USER_ID\",\"text\":\"What can you do?\"}"
 ```

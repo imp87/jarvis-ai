@@ -10,6 +10,16 @@ import type { CallTransport } from "../transport.js";
 /** ~500 ms of audio: enough to absorb synthesis jitter, short enough that the
  * session does not race ahead of what the caller is hearing. */
 const MAX_QUEUED_FRAMES = 25;
+/**
+ * How long a connected call may go without a single frame from Asterisk before
+ * we call it broken.
+ *
+ * This is not a tuning knob but a diagnostic: because AudioSocket is lock-step,
+ * a call whose RTP never arrives produces *no* symptom here — the session sits
+ * in `say()` forever, the channel stays Up in Asterisk, and nothing is logged.
+ * That failure is indistinguishable from a hang in synthesis unless it is named.
+ */
+const NO_AUDIO_TIMEOUT_MS = 3000;
 
 /**
  * A live call, carried over Asterisk's AudioSocket.
@@ -40,6 +50,8 @@ class AudioSocketTransport implements CallTransport {
   private readonly outgoing: Buffer[] = [];
   private readonly silence: Buffer;
   private readonly waiters: Array<() => void> = [];
+  private framesReceived = 0;
+  private lastPumpAt = Date.now();
 
   constructor(
     readonly callId: string,
@@ -48,6 +60,15 @@ class AudioSocketTransport implements CallTransport {
     frameBytes = 320,
   ) {
     this.silence = Buffer.alloc(frameBytes);
+    setTimeout(() => {
+      if (this.closed || this.framesReceived > 0) return;
+      this.logger.error(
+        { callId: this.callId },
+        "no audio from Asterisk on a connected call — the channel is up but no RTP " +
+          "is arriving, so nothing can be played to the caller either. Check that " +
+          "Asterisk's SDP advertises an address the phone system can actually reach.",
+      );
+    }, NO_AUDIO_TIMEOUT_MS).unref();
   }
 
   onAudio(handler: (frame: Buffer) => void): void {
@@ -64,6 +85,7 @@ class AudioSocketTransport implements CallTransport {
    * outgoing stream is paced by the call itself and cannot drift.
    */
   deliver(frame: Buffer): void {
+    this.framesReceived += 1;
     this.audioHandler?.(frame);
     this.pump();
   }
@@ -72,6 +94,7 @@ class AudioSocketTransport implements CallTransport {
     if (this.closed) return;
     const next = this.outgoing.shift() ?? this.silence;
     this.socket.write(encodeAudio(next));
+    this.lastPumpAt = Date.now();
     this.releaseWaiters();
   }
 
@@ -98,9 +121,25 @@ class AudioSocketTransport implements CallTransport {
     await this.wait();
   }
 
-  /** Resolves once every queued frame has gone out. */
+  /**
+   * Resolves once every queued frame has gone out, or once it is clear they
+   * never will.
+   *
+   * The pump only runs when Asterisk sends us something, so a stalled call would
+   * otherwise leave the session waiting here forever with the greeting still
+   * queued — no error, no hangup, no log line. Giving up keeps the session alive
+   * to hang up and report instead.
+   */
   async flush(): Promise<void> {
     while (!this.closed && this.outgoing.length > 0) {
+      if (Date.now() - this.lastPumpAt > NO_AUDIO_TIMEOUT_MS) {
+        this.logger.warn(
+          { callId: this.callId, dropped: this.outgoing.length },
+          "far end stopped consuming audio; abandoning the rest of this reply",
+        );
+        this.outgoing.length = 0;
+        return;
+      }
       await this.wait();
     }
   }

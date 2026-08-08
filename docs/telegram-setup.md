@@ -20,11 +20,11 @@ Register yourself; nobody else can talk to the bot:
 
 ```bash
 TOKEN=...  # SERVICE_TOKEN from .env
-USER_ID=$(curl -s -X POST localhost:8080/v1/users \
+USER_ID=$(curl -s -X POST localhost:18780/v1/users \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"displayName":"Steve","isOwner":true}' | jq -r .id)
 
-curl -X POST localhost:8080/v1/identities \
+curl -X POST localhost:18780/v1/identities \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d "{\"userId\":\"$USER_ID\",\"channel\":\"telegram\",\"channelUserId\":\"<your numeric id>\"}"
 ```
@@ -33,7 +33,7 @@ Reply format (text is the default — this is a stored setting, **not** mirrored
 from whether you sent a voice note):
 
 ```bash
-curl -X PUT "localhost:8080/v1/users/$USER_ID/settings/telegram" \
+curl -X PUT "localhost:18780/v1/users/$USER_ID/settings/telegram" \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"replyFormat":"voice","language":"de"}'
 ```
