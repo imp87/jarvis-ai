@@ -140,6 +140,15 @@ export class WebSocketMediaServer {
     private readonly logger: Logger,
     private readonly onCall: (transport: CallTransport, pending: PendingCall) => Promise<void>,
     private readonly pendingTtlMs = 60_000,
+    /**
+     * Reports an authorisation that expired unused.
+     *
+     * Placing a call is fire-and-forget — a call file is written and Asterisk
+     * dials it later, or fails to. Without telling the orchestrator, the call
+     * log stays on `dialing` forever, and because the budget counts `dialing`,
+     * a call that never rang permanently consumes one of the day's allowance.
+     */
+    private readonly onExpired?: (call: PendingCall) => void,
   ) {
     this.wss.on("connection", (socket) => this.handleConnection(socket));
   }
@@ -156,6 +165,7 @@ export class WebSocketMediaServer {
     setTimeout(() => {
       if (this.pending.delete(call.callId)) {
         this.logger.warn({ callId: call.callId }, "authorised call was never connected");
+        this.onExpired?.(call);
       }
     }, this.pendingTtlMs).unref();
   }

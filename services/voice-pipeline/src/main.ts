@@ -60,6 +60,9 @@ const handleCall = async (
       : env.VOICE_GREETING;
 
   logger.info({ callId: pending.callId, direction: pending.direction, mode: env.VOICE_MODE }, "call connected");
+  // Outbound calls are logged as `dialing` until something says otherwise; this
+  // is the first moment anyone knows the phone was actually answered.
+  void orchestrator.reportCallStatus(pending.callId, "in_progress");
   const result =
     env.VOICE_MODE === "realtime"
       ? await new RealtimeCallSession(transport, orchestrator, pending.channelUserId, logger, {
@@ -77,6 +80,10 @@ const handleCall = async (
   logger.info(
     { callId: pending.callId, turns: result.turns, endedBecause: result.endedBecause },
     "call finished",
+  );
+  void orchestrator.reportCallStatus(
+    pending.callId,
+    result.endedBecause === "error" ? "failed" : "completed",
   );
 };
 
@@ -103,7 +110,22 @@ if (env.TTS_ENGINE === "local") {
   if (tts.check) await tts.check();
 }
 
-const media = new WebSocketMediaServer(env.SERVICE_TOKEN, logger, handleCall);
+const media = new WebSocketMediaServer(
+  env.SERVICE_TOKEN,
+  logger,
+  handleCall,
+  60_000,
+  // Asterisk never dialled it, or the far end never answered. Say so, or the
+  // call log keeps claiming it is dialing and the budget stays spent.
+  (pending) => {
+    pendingContext.delete(pending.callId);
+    void orchestrator.reportCallStatus(
+      pending.callId,
+      "failed",
+      "the call was authorised but never connected",
+    );
+  },
+);
 const app = createApp({ env, logger, orchestrator, media, originator, pendingContext });
 const server = app.listen(env.VOICE_PIPELINE_PORT, () => {
   logger.info(

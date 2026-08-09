@@ -64,6 +64,44 @@ export class OrchestratorClient {
     return { userId: body.userId, displayName: body.displayName };
   }
 
+  /**
+   * Tells the orchestrator how a call actually ended.
+   *
+   * Placing a call is fire-and-forget — a call file is written and Asterisk
+   * dials it minutes later, or not at all. Without this the log would keep
+   * saying `dialing` for a call that never rang, and because the call budget
+   * counts `dialing`, every failure would silently consume one of the day's
+   * allowance for good.
+   *
+   * Best-effort by design: a failed status report must never take down the
+   * call handling it is reporting on.
+   */
+  async reportCallStatus(
+    callId: string,
+    status: "in_progress" | "completed" | "failed",
+    error?: string,
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/v1/calls/${callId}/status`, {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${this.serviceToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ status, ...(error ? { error } : {}) }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) {
+        this.logger.warn(
+          { callId, status, http: response.status },
+          "orchestrator rejected the call status report",
+        );
+      }
+    } catch (err) {
+      this.logger.warn({ callId, status, err: String(err) }, "could not report call status");
+    }
+  }
+
   async send(input: {
     /** The caller's normalised E.164 number — the orchestrator keys on this. */
     channelUserId: string;

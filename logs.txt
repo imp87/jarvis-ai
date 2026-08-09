@@ -1,26 +1,16 @@
-
-telegram-adapter-1 exited with code 137 (restarting)
-telegram-adapter-1  | {"level":30,"time":1786285704909,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
-telegram-adapter-1  | {"level":30,"time":1786285704922,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
-telegram-adapter-1  | {"level":30,"time":1786285704922,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
-telegram-adapter-1  | {"level":30,"time":1786285705826,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":904,"msg":"speech model ready"}
-telegram-adapter-1  | {"level":30,"time":1786285705830,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
-telegram-adapter-1  | {"level":30,"time":1786285705846,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
-telegram-adapter-1  | {"level":30,"time":1786285705846,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
-telegram-adapter-1 exited with code 137 (restarting)
-telegram-adapter-1  | {"level":30,"time":1786285709647,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
-telegram-adapter-1  | {"level":30,"time":1786285709661,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
-telegram-adapter-1  | {"level":30,"time":1786285709662,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
-telegram-adapter-1  | {"level":30,"time":1786285710661,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":1000,"msg":"speech model ready"}
-telegram-adapter-1  | {"level":30,"time":1786285710666,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
-telegram-adapter-1  | {"level":30,"time":1786285710690,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
-telegram-adapter-1  | {"level":30,"time":1786285710690,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
-telegram-adapter-1 exited with code 137 (restarting)
-telegram-adapter-1  | {"level":30,"time":1786285714898,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
-telegram-adapter-1  | {"level":30,"time":1786285714902,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
-telegram-adapter-1  | {"level":30,"time":1786285714902,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
-telegram-adapter-1  | {"level":30,"time":1786285715888,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":986,"msg":"speech model ready"}
-telegram-adapter-1  | {"level":30,"time":1786285715893,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
-telegram-adapter-1  | {"level":30,"time":1786285715910,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
-telegram-adapter-1  | {"level":30,"time":1786285715910,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
-telegram-adapter-1 exited with code 137 (restarting)
+asterisk-1          | [Aug  9 16:17:10] WARNING[37]: res_pjsip_outbound_registration.c:1216 schedule_retry: No response received from 'sip:192.168.188.1' on registration attempt to 'sip  :jarvisai@192.168.188.1', retrying in '60'
+asterisk-1          | [Aug  9 16:17:10] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:62465  ' (callid: 1137135804-536986783-517132885) - No matching endpoint found
+asterisk-1          | [Aug  9 16:17:17] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:60000@45.82.122.75>' failed for '213.165.51.44:64036' (callid: 2007430526-1241720435-737295045) - No matching endpoint found
+voice-pipeline-1    | {"level":30,"time":1786292240824,"pid":1,"hostname":"bc7f5195bcf1","name":"voice-pipeline","callId":"39f5e165-cc4c-4c51-9437-dfbe00b8a6a9","endpoint":"fritzbox","msg":"call file queued"}
+asterisk-1          | [Aug  9 16:17:20] WARNING[74]: pbx_spool.c:353 safe_append: Unable to set utime on /var/spool/asterisk/outgoing/39f5e165-cc4c-4c51-9437-dfbe00b8a6a9.call: Operation not permitted
+voice-pipeline-1    | {"level":30,"time":1786292240824,"pid":1,"hostname":"bc7f5195bcf1","name":"voice-pipeline","callId":"39f5e165-cc4c-4c51-9437-dfbe00b8a6a9","to":"+4915***38","reason":"Der Nutzer bittet ausdrücklich um einen sofortigen persönlichen Anruf.","msg":"outbound call queued"}
+asterisk-1          |     -- Attempting call on PJSIP/004915561049738@fritzbox for s@jarvis-outbound:1 (Retry 1)
+asterisk-1          | [Aug  9 16:17:20] ERROR[37]: res_pjsip.c:987 ast_sip_create_dialog_uac: Endpoint 'fritzbox': Could not create dialog to invalid URI 'fritzbox'.  Is endpoint registered and reachable?
+asterisk-1          | [Aug  9 16:17:20] ERROR[37]: chan_pjsip.c:2726 request: Failed to create outgoing session to endpoint 'fritzbox'
+asterisk-1          | [Aug  9 16:17:20] NOTICE[84]: pbx_spool.c:450 attempt_thread: Call failed to go through, reason (0) Call Failure (not BUSY, and not NO_ANSWER, maybe Circuit busy or down?)
+asterisk-1          | [Aug  9 16:17:20] NOTICE[84]: pbx_spool.c:453 attempt_thread: Queued call to PJSIP/004915561049738@fritzbox expired without completion after 0 attempts
+orchestrator-1      | {"level":30,"time":1786292240828,"pid":1,"hostname":"2d2d1790f8c7","name":"orchestrator","tool":"place_phone_call","source":"builtin","ok":true,"durationMs":15,"msg":"tool executed"}
+orchestrator-1      | {"level":30,"time":1786292241694,"pid":1,"hostname":"2d2d1790f8c7","name":"orchestrator","taskId":"a1362652-e0fb-450c-91b0-245a390a1960","title":"Rufe mich an","kind":"agent","status":"ok","durationMs":2099,"msg":"task run finished"}
+asterisk-1          | [Aug  9 16:17:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:200@45.82.122.75>' failed for '51.91.214.106:50218' (callid: 1039733853-1061946522-2122140208) - No matching endpoint found
+asterisk-1          | [Aug  9 16:17:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:200@45.82.122.75>' failed for '51.91.214.106:50218' (callid: 1039733853-1061946522-2122140208) - No matching endpoint found
+asterisk-1          | [Aug  9 16:17:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:200@45.82.122.75>' failed for '51.91.214.106:50218' (callid: 1039733853-1061946522-2122140208) - Failed to authenticate

@@ -212,6 +212,13 @@ export class AudioSocketServer {
     private readonly onCall: CallHandler,
     /** Unclaimed authorisations expire, so a stale UUID cannot be replayed later. */
     private readonly pendingTtlMs = 60_000,
+    /**
+     * Reports an authorisation that expired unused. Without it the orchestrator
+     * never learns the call did not happen, leaves the log on `dialing`, and —
+     * since the budget counts `dialing` — retires one of the day's calls for a
+     * call that never rang.
+     */
+    private readonly onExpired?: (call: PendingCall) => void,
   ) {}
 
   expect(call: PendingCall): void {
@@ -219,6 +226,7 @@ export class AudioSocketServer {
     setTimeout(() => {
       if (this.pending.delete(call.callId)) {
         this.logger.warn({ callId: call.callId }, "authorised call was never connected");
+        this.onExpired?.(call);
       }
     }, this.pendingTtlMs).unref();
   }

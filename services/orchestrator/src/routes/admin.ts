@@ -231,6 +231,39 @@ export function adminRoutes(container: Container): Router {
     }),
   );
 
+  /**
+   * How a call ends up in the log truthfully.
+   *
+   * Placing a call is fire-and-forget: the pipeline writes a call file and
+   * Asterisk dials it later, so "placed" only ever meant "queued". Without this
+   * callback a call that never connected stayed `dialing` forever — and
+   * `budgetUsage` counts `dialing`, so every failure permanently consumed one of
+   * the day's calls.
+   */
+  router.patch(
+    "/v1/calls/:id/status",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params["id"]);
+      const input = z
+        .object({
+          status: z.enum(["dialing", "in_progress", "completed", "failed"]),
+          error: z.string().max(1000).optional(),
+        })
+        .parse(req.body);
+
+      await repos.calls.updateStatus(id, input.status, {
+        ...(input.status === "completed" || input.status === "failed"
+          ? { endedAt: new Date() }
+          : {}),
+      });
+      container.logger.info(
+        { callId: id, status: input.status, ...(input.error ? { error: input.error } : {}) },
+        "call status reported by the pipeline",
+      );
+      res.json({ id, status: input.status });
+    }),
+  );
+
   router.get(
     "/v1/calls",
     asyncHandler(async (req, res) => {
