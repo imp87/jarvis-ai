@@ -268,10 +268,19 @@ export async function createImapAccount(raw: ImapAccountInput): Promise<ActionRe
   return attempt("IMAP account added.", async () => {
     const input = imapAccountSchema.parse(raw);
     if (!input.password.trim()) throw new Error("The IMAP password or app password is required.");
+    const { smtpHost, smtpPort, smtpSecure, smtpUsername, smtpPassword, smtpFrom, ...account } = input;
     await api.post("/v1/imap/accounts", {
-      ...input,
+      ...account,
       // Kept for older database rows; the delivery policy is authoritative.
       notifyChannel: input.deliveryPolicy.normal === "discord" ? "discord" : "telegram",
+      ...(smtpHost.trim()
+        ? {
+            smtpHost: smtpHost.trim(), smtpPort, smtpSecure,
+            ...(smtpUsername.trim() ? { smtpUsername: smtpUsername.trim() } : {}),
+            ...(smtpPassword.trim() ? { smtpPassword } : {}),
+            ...(smtpFrom.trim() ? { smtpFrom: smtpFrom.trim() } : {}),
+          }
+        : {}),
     });
     revalidatePath("/imap");
     revalidatePath("/");
@@ -287,6 +296,12 @@ export async function updateImapAccount(id: string, raw: ImapAccountInput): Prom
       username: input.username, mailbox: input.mailbox,
       notifyChannel: input.deliveryPolicy.normal === "discord" ? "discord" : "telegram",
       deliveryPolicy: input.deliveryPolicy,
+      smtpHost: input.smtpHost.trim() || null,
+      smtpPort: input.smtpPort,
+      smtpSecure: input.smtpSecure,
+      smtpUsername: input.smtpUsername.trim() || null,
+      smtpFrom: input.smtpFrom.trim() || null,
+      ...(input.smtpPassword.trim() ? { smtpPassword: input.smtpPassword } : {}),
       maxBodyChars: input.maxBodyChars,
       ...(input.password.trim() ? { password: input.password } : {}),
     });

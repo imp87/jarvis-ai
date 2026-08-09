@@ -114,6 +114,7 @@ function AccountRow({ account, users }: { account: ImapAccount; users: AdminUser
             <Text size="xs" c="dimmed">
               {user?.displayName ?? account.userId} · low: {account.deliveryPolicy.low} · normal: {account.deliveryPolicy.normal} · urgent: {account.deliveryPolicy.urgent}
             </Text>
+            <Text size="xs" c="dimmed">SMTP: {account.smtpHost ? `${account.smtpHost}:${account.smtpPort}` : "not configured"}</Text>
           </Stack>
           <Group gap="xs" wrap="nowrap">
             <Button size="xs" variant="default" onClick={modal.open}>Edit</Button>
@@ -148,6 +149,8 @@ function EditAccountModal({ account, users, opened, onClose }: { account: ImapAc
       userId: account.userId, name: account.name, host: account.host, port: account.port, secure: account.secure,
       username: account.username, password: "", mailbox: account.mailbox, notifyChannel: account.notifyChannel,
       deliveryPolicy: account.deliveryPolicy,
+      smtpHost: account.smtpHost ?? "", smtpPort: account.smtpPort, smtpSecure: account.smtpSecure,
+      smtpUsername: account.smtpUsername ?? "", smtpPassword: "", smtpFrom: account.smtpFrom ?? "",
       maxBodyChars: account.maxBodyChars,
     },
     validate: zodValidate(imapAccountSchema),
@@ -220,6 +223,24 @@ function AccountFields({ form, users, allowUserChoice }: {
         minRows={2}
         {...form.getInputProps("deliveryPolicy.instructions")}
       />
+      <Stack gap="xs">
+        <Text fw={500}>Outgoing mail (SMTP)</Text>
+        <Text size="xs" c="dimmed">
+          Jarvis sends only an existing reply draft after your explicit instruction. Leave empty to keep this mailbox read-only.
+        </Text>
+        <Group grow align="flex-start">
+          <TextInput label="SMTP host" placeholder="smtp.example.com" {...form.getInputProps("smtpHost")} />
+          <NumberInput label="SMTP port" min={1} max={65535} {...form.getInputProps("smtpPort")} />
+        </Group>
+        <Group grow align="flex-start">
+          <TextInput label="SMTP username" placeholder="Defaults to IMAP username" {...form.getInputProps("smtpUsername")} />
+          <TextInput label="From address" placeholder="Defaults to SMTP username" {...form.getInputProps("smtpFrom")} />
+        </Group>
+        <Group grow align="flex-start">
+          <PasswordInput label="SMTP password / app password" description="Leave empty to use the IMAP app password." {...form.getInputProps("smtpPassword")} />
+          <Checkbox mt={30} label="Direct TLS (usually port 465)" {...form.getInputProps("smtpSecure", { type: "checkbox" })} />
+        </Group>
+      </Stack>
       <Group grow align="flex-start">
         <NumberInput label="Maximum mirrored body characters" min={500} max={100000} {...form.getInputProps("maxBodyChars")} />
         <Checkbox mt={30} label="Use direct TLS" {...form.getInputProps("secure", { type: "checkbox" })} />

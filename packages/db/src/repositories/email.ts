@@ -39,6 +39,13 @@ export interface ImapAccountRow {
   mailbox: string;
   notifyChannel: "telegram" | "discord";
   deliveryPolicy: ImapDeliveryPolicy;
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUsername: string | null;
+  /** Optional dedicated SMTP secret; IMAP's encrypted app password is used when absent. */
+  smtpPasswordEnc: string | null;
+  smtpFrom: string | null;
   maxBodyChars: number;
   enabled: boolean;
 }
@@ -58,6 +65,20 @@ export interface ImapDeliveryEventRow {
   retryDelayMinutes: number;
   retryAt: Date | null;
   state: "awaiting_call" | "retry_scheduled" | "delivered" | "fallback_sent";
+}
+
+export interface ImapReplyDraftRow {
+  id: string;
+  accountId: string;
+  messageId: string;
+  userId: string;
+  toAddress: string;
+  subject: string;
+  bodyText: string;
+  inReplyTo: string | null;
+  status: "pending" | "sent" | "cancelled";
+  sentAt: Date | null;
+  createdAt: Date;
 }
 
 export interface ImapCursorRow {
@@ -80,7 +101,8 @@ export interface ImapMessageRow {
 }
 
 const ACCOUNT_COLUMNS = `id, user_id, name, host, port, secure, username, password_enc,
-                         mailbox, notify_channel, delivery_policy, max_body_chars, enabled`;
+                         mailbox, notify_channel, delivery_policy, smtp_host, smtp_port, smtp_secure,
+                         smtp_username, smtp_password_enc, smtp_from, max_body_chars, enabled`;
 const MESSAGE_COLUMNS = `id, account_id, uid_validity, uid, message_id, from_address,
                          subject, received_at, body_text, created_at`;
 
@@ -107,8 +129,9 @@ export class EmailRepository {
   async createAccount(input: Omit<ImapAccountRow, "id" | "enabled">): Promise<ImapAccountRow> {
     const { rows } = await this.pool.query(
       `INSERT INTO imap_accounts
-        (user_id, name, host, port, secure, username, password_enc, mailbox, notify_channel, delivery_policy, max_body_chars)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
+        (user_id, name, host, port, secure, username, password_enc, mailbox, notify_channel, delivery_policy,
+         smtp_host, smtp_port, smtp_secure, smtp_username, smtp_password_enc, smtp_from, max_body_chars)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17)
        RETURNING ${ACCOUNT_COLUMNS}`,
       [
         input.userId,
@@ -121,6 +144,12 @@ export class EmailRepository {
         input.mailbox,
         input.notifyChannel,
         JSON.stringify(input.deliveryPolicy),
+        input.smtpHost,
+        input.smtpPort,
+        input.smtpSecure,
+        input.smtpUsername,
+        input.smtpPasswordEnc,
+        input.smtpFrom,
         input.maxBodyChars,
       ],
     );
@@ -135,6 +164,8 @@ export class EmailRepository {
       ["name", "name"], ["host", "host"], ["port", "port"], ["secure", "secure"],
       ["username", "username"], ["passwordEnc", "password_enc"], ["mailbox", "mailbox"],
       ["notifyChannel", "notify_channel"], ["deliveryPolicy", "delivery_policy"], ["maxBodyChars", "max_body_chars"], ["enabled", "enabled"],
+      ["smtpHost", "smtp_host"], ["smtpPort", "smtp_port"], ["smtpSecure", "smtp_secure"],
+      ["smtpUsername", "smtp_username"], ["smtpPasswordEnc", "smtp_password_enc"], ["smtpFrom", "smtp_from"],
     ];
     const values: unknown[] = [id];
     const assignments: string[] = [];
@@ -274,6 +305,40 @@ export class EmailRepository {
     const row = rows[0] as Record<string, unknown> | undefined;
     return row ? mapMessage(row) : null;
   }
+
+  async createReplyDraft(input: Omit<ImapReplyDraftRow, "id" | "status" | "sentAt" | "createdAt">): Promise<ImapReplyDraftRow> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO imap_reply_drafts (account_id, message_id, user_id, to_address, subject, body_text, in_reply_to)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [input.accountId, input.messageId, input.userId, input.toAddress, input.subject, input.bodyText, input.inReplyTo],
+    );
+    return mapReplyDraft(rows[0] as Record<string, unknown>);
+  }
+
+  async listReplyDrafts(userId: string, status: "pending" | "sent" | "cancelled" = "pending"): Promise<ImapReplyDraftRow[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM imap_reply_drafts WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT 50`,
+      [userId, status],
+    );
+    return (rows as Array<Record<string, unknown>>).map(mapReplyDraft);
+  }
+
+  async getReplyDraft(userId: string, id: string): Promise<ImapReplyDraftRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM imap_reply_drafts WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapReplyDraft(row) : null;
+  }
+
+  async updateReplyDraftBody(id: string, bodyText: string): Promise<void> {
+    await this.pool.query(`UPDATE imap_reply_drafts SET body_text = $2, updated_at = now() WHERE id = $1 AND status = 'pending'`, [id, bodyText]);
+  }
+
+  async markReplyDraftSent(id: string): Promise<void> {
+    await this.pool.query(`UPDATE imap_reply_drafts SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1 AND status = 'pending'`, [id]);
+  }
 }
 
 function mapAccount(row: Record<string, unknown>): ImapAccountRow {
@@ -283,6 +348,12 @@ function mapAccount(row: Record<string, unknown>): ImapAccountRow {
     username: String(row["username"]), passwordEnc: String(row["password_enc"]),
     mailbox: String(row["mailbox"]), notifyChannel: row["notify_channel"] as "telegram" | "discord",
     deliveryPolicy: parseDeliveryPolicy(row["delivery_policy"]),
+    smtpHost: (row["smtp_host"] as string | null) ?? null,
+    smtpPort: Number(row["smtp_port"] ?? 587),
+    smtpSecure: Boolean(row["smtp_secure"]),
+    smtpUsername: (row["smtp_username"] as string | null) ?? null,
+    smtpPasswordEnc: (row["smtp_password_enc"] as string | null) ?? null,
+    smtpFrom: (row["smtp_from"] as string | null) ?? null,
     maxBodyChars: Number(row["max_body_chars"]), enabled: Boolean(row["enabled"]),
   };
 }
@@ -316,6 +387,15 @@ function mapDeliveryEvent(row: Record<string, unknown>): ImapDeliveryEventRow {
     callId: (row["call_id"] as string | null) ?? null, callsAttempted: Number(row["calls_attempted"]),
     maxCallAttempts: Number(row["max_call_attempts"]), retryDelayMinutes: Number(row["retry_delay_minutes"]),
     retryAt: (row["retry_at"] as Date | null) ?? null, state: row["state"] as ImapDeliveryEventRow["state"],
+  };
+}
+
+function mapReplyDraft(row: Record<string, unknown>): ImapReplyDraftRow {
+  return {
+    id: String(row["id"]), accountId: String(row["account_id"]), messageId: String(row["message_id"]), userId: String(row["user_id"]),
+    toAddress: String(row["to_address"]), subject: String(row["subject"]), bodyText: String(row["body_text"]),
+    inReplyTo: (row["in_reply_to"] as string | null) ?? null, status: row["status"] as ImapReplyDraftRow["status"],
+    sentAt: (row["sent_at"] as Date | null) ?? null, createdAt: row["created_at"] as Date,
   };
 }
 

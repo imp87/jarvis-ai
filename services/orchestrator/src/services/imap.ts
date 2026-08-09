@@ -246,6 +246,18 @@ class ImapAccountWorker {
     }
     if (decision.priority === "IGNORE") return;
     const route = this.account.deliveryPolicy[decision.priority.toLowerCase() as "low" | "normal" | "urgent"];
+    const storedDraft =
+      this.account.deliveryPolicy.replyMode === "draft" && decision.draft
+        ? await this.deps.emails.createReplyDraft({
+            accountId: this.account.id,
+            messageId: message.id,
+            userId: this.account.userId,
+            toAddress: extractReplyAddress(message.fromAddress),
+            subject: replySubject(message.subject),
+            bodyText: decision.draft,
+            inReplyTo: message.messageId,
+          })
+        : null;
     await this.deps.delivery.deliver({
       accountId: this.account.id,
       messageId: message.id,
@@ -254,8 +266,9 @@ class ImapAccountWorker {
       decision: {
         route,
         summary: decision.summary,
-        replyDraft: this.account.deliveryPolicy.replyMode === "draft" ? decision.draft : null,
+        replyDraft: storedDraft?.bodyText ?? null,
         replyMode: this.account.deliveryPolicy.replyMode,
+        ...(storedDraft ? { draftId: storedDraft.id } : {}),
         fallbackChannel: this.account.deliveryPolicy.callFallback,
         callRetryCount: this.account.deliveryPolicy.callRetryCount,
         callRetryDelayMinutes: this.account.deliveryPolicy.callRetryDelayMinutes,
@@ -280,6 +293,15 @@ export function mailDecisionFromAgentReply(reply: string): { priority: "IGNORE" 
 function trimText(value: string, limit: number): string {
   const normalized = value.replace(/\u0000/g, "").trim();
   return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}\n[gekürzt]`;
+}
+
+function extractReplyAddress(value: string): string {
+  const bracketed = /<([^<>\s]+@[^<>\s]+)>/.exec(value)?.[1];
+  return bracketed ?? /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/.exec(value)?.[0] ?? value.trim();
+}
+
+function replySubject(subject: string): string {
+  return /^re:/i.test(subject.trim()) ? subject.trim() : `Re: ${subject.trim()}`;
 }
 
 function delay(ms: number): Promise<void> {

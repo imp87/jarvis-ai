@@ -8,6 +8,7 @@ export interface MailDeliveryDecision {
   summary: string;
   replyDraft: string | null;
   replyMode: "none" | "draft" | "ask";
+  draftId?: string | undefined;
   fallbackChannel: ImapFallbackRoute;
   callRetryCount: number;
   callRetryDelayMinutes: number;
@@ -157,9 +158,12 @@ export class MailDeliveryService {
   }
 }
 
-export function formatMailNotification(accountName: string, decision: Pick<MailDeliveryDecision, "summary" | "replyDraft" | "replyMode">): string {
+export function formatMailNotification(accountName: string, decision: Pick<MailDeliveryDecision, "summary" | "replyDraft" | "replyMode" | "draftId">): string {
   let text = `E-Mail (${accountName}): ${decision.summary}`;
-  if (decision.replyMode === "draft" && decision.replyDraft) text += `\n\nAntwortentwurf:\n${decision.replyDraft}`;
+  if (decision.replyMode === "draft" && decision.replyDraft) {
+    text += `\n\nAntwortentwurf${decision.draftId ? ` (${decision.draftId})` : ""}:\n${decision.replyDraft}`;
+    text += decision.draftId ? `\n\nZum Versenden: „Sende Entwurf ${decision.draftId}“.` : "";
+  }
   if (decision.replyMode === "ask") text += "\n\nSoll ich eine Antwort vorbereiten? Sag mir einfach, was Jarvis antworten soll.";
   return text;
 }

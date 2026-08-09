@@ -122,6 +122,12 @@ export interface ImapAccount {
     replyMode: "none" | "draft" | "ask";
     instructions: string;
   };
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUsername: string | null;
+  smtpFrom: string | null;
+  hasSmtpPassword: boolean;
   maxBodyChars: number;
   enabled: boolean;
   hasPassword: boolean;

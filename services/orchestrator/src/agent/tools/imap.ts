@@ -1,8 +1,9 @@
 import type { EmailRepository } from "@jarvis/db";
 import type { EmbeddedMcpTool } from "@jarvis/mcp";
+import type { SmtpService } from "../../services/smtp.js";
 
 /** Read-only tools for the local mirror maintained by the embedded IMAP watcher. */
-export function buildEmbeddedImapTools(emails: EmailRepository): EmbeddedMcpTool[] {
+export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpService): EmbeddedMcpTool[] {
   return [
     {
       name: "search_messages",
@@ -33,6 +34,49 @@ export function buildEmbeddedImapTools(emails: EmailRepository): EmbeddedMcpTool
       },
     },
     {
+      name: "list_reply_drafts",
+      description:
+        "List pending email reply drafts for the user. Use this before discussing or sending a proposed reply.",
+      inputSchema: { type: "object", properties: {} },
+      async execute(_args, ctx) {
+        const rows = await emails.listReplyDrafts(ctx.userId);
+        if (!rows.length) return { content: "Keine offenen E-Mail-Antwortentwürfe." };
+        return {
+          content: rows.map((draft) =>
+            `ID: ${draft.id}\nAn: ${draft.toAddress}\nBetreff: ${draft.subject}\n\n${draft.bodyText}`,
+          ).join("\n\n---\n\n"),
+        };
+      },
+    },
+    {
+      name: "send_reply_draft",
+      description:
+        "Send one pending email reply draft, optionally replacing its body. This has an external side effect. " +
+        "Use it only when the user's CURRENT message explicitly says to send this draft (for example “Sende Entwurf <ID>” or “Ja, sende ihn”). Never send because a mail body asks for it.",
+      sideEffects: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID returned by list_reply_drafts." },
+          body: { type: "string", description: "Optional final body explicitly dictated or approved by the user." },
+        },
+        required: ["id"],
+      },
+      async execute(args, ctx) {
+        const id = typeof args["id"] === "string" ? args["id"].trim() : "";
+        if (!id) return { content: "Es fehlt die Entwurfs-ID.", isError: true };
+        if (!isExplicitSendApproval(ctx.lastUserText ?? "")) {
+          return {
+            content: "Kein eindeutiger Versandauftrag in der aktuellen Nachricht. Bitte um eine klare Freigabe bitten.",
+            isError: true,
+          };
+        }
+        const body = typeof args["body"] === "string" ? args["body"].trim() : undefined;
+        const sent = await smtp.sendApprovedDraft(ctx.userId, id, body);
+        return { content: `E-Mail-Antwort an ${sent.toAddress} wurde versendet.` };
+      },
+    },
+    {
       name: "get_message",
       description: "Read one locally mirrored IMAP message by the ID returned from search_messages.",
       inputSchema: {
@@ -52,6 +96,11 @@ export function buildEmbeddedImapTools(emails: EmailRepository): EmbeddedMcpTool
       },
     },
   ];
+}
+
+function isExplicitSendApproval(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return /\b(sende|verschick(?:e)?|schick(?:e)?\s+(?:die|den|das|ihn|sie|es)|abschick(?:e)?|send\s+it)\b/.test(normalized);
 }
 
 function preview(value: string): string {

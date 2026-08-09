@@ -28,6 +28,7 @@ import { buildTaskTools } from "./agent/tools/tasks.js";
 import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
 import { ImapService } from "./services/imap.js";
 import { MailDeliveryService } from "./services/mail-delivery.js";
+import { SmtpService } from "./services/smtp.js";
 
 export interface Container {
   config: AppConfig;
@@ -55,6 +56,7 @@ export interface Container {
   taskRunner: TaskRunner;
   imap: ImapService;
   mailDelivery: MailDeliveryService;
+  smtp: SmtpService;
   agent: AgentLoop;
   shutdown(): Promise<void>;
 }
@@ -118,13 +120,14 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
   );
 
   const mcp = new McpManager(logger);
+  const smtp = new SmtpService(repos.emails, masterKey, logger);
   await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger);
   // IMAP accounts are created in the admin UI. The MCP tools are available
   // even before the first account exists, so adding an account needs no restart.
   mcp.registerEmbeddedServer({
     name: "imap",
     description: "Your locally mirrored IMAP mail. Read-only; it never sends or changes mail.",
-    tools: buildEmbeddedImapTools(repos.emails),
+    tools: buildEmbeddedImapTools(repos.emails, smtp),
   });
 
   const notifications = new NotificationService(
@@ -200,6 +203,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     taskRunner,
     imap,
     mailDelivery,
+    smtp,
     agent,
     async shutdown() {
       await taskRunner.stop();

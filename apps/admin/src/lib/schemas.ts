@@ -160,6 +160,12 @@ export const imapAccountSchema = z.object({
     replyMode: z.enum(["none", "draft", "ask"]).default("draft"),
     instructions: z.string().trim().max(2000).default(""),
   }),
+  smtpHost: z.string().trim().max(255).default(""),
+  smtpPort: z.coerce.number().int().min(1).max(65_535).default(587),
+  smtpSecure: z.boolean().default(false),
+  smtpUsername: z.string().trim().max(500).default(""),
+  smtpPassword: z.string().default(""),
+  smtpFrom: z.string().trim().max(500).default(""),
   maxBodyChars: z.coerce.number().int().min(500).max(100_000).default(12_000),
 });
 
@@ -173,6 +179,7 @@ export function emptyImapAccount(userId = ""): ImapAccountInput {
       low: "none", normal: "telegram", urgent: "call", callFallback: "telegram",
       callRetryCount: 1, callRetryDelayMinutes: 20, replyMode: "draft", instructions: "",
     },
+    smtpHost: "", smtpPort: 587, smtpSecure: false, smtpUsername: "", smtpPassword: "", smtpFrom: "",
     maxBodyChars: 12_000,
   };
 }
