@@ -17,6 +17,7 @@ export interface RealtimeSessionOptions {
 
 type RealtimeEvent = {
   type?: string;
+  event_id?: string;
   delta?: string;
   error?: { message?: string; code?: string; type?: string };
   name?: string;
@@ -51,6 +52,9 @@ export class RealtimeCallSession {
   private playbackGeneration = 0;
   private pendingEndCall: { reason: string } | undefined;
   private readonly handledFunctionCalls = new Set<string>();
+  private sessionConfiguration:
+    | { resolve: () => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }
+    | undefined;
 
   constructor(
     private readonly transport: CallTransport,
@@ -68,9 +72,19 @@ export class RealtimeCallSession {
     this.transport.onAudio((frame) => this.onAudio(frame));
     this.transport.onHangup(() => this.finish("hangup"));
 
-    await this.connect();
-    this.configureSession();
-    this.requestGreeting();
+    try {
+      await this.connect();
+      // A voice is locked after the first audio output. Do not ask for the
+      // greeting until OpenAI has acknowledged the session configuration;
+      // otherwise the default voice can win the race and persist for the call.
+      await this.configureSession();
+      this.requestGreeting();
+    } catch (err) {
+      this.logger.error({ callId: this.transport.callId, err: String(err) }, "realtime session setup failed");
+      this.finish("error");
+      await this.transport.hangup().catch(() => undefined);
+      return done;
+    }
 
     const idleTimer = setInterval(() => {
       if (this.finished) return;
@@ -118,10 +132,19 @@ export class RealtimeCallSession {
     });
   }
 
-  private configureSession(): void {
+  private async configureSession(): Promise<void> {
+    const configured = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.sessionConfiguration = undefined;
+        reject(new Error("OpenAI Realtime did not confirm the audio session"));
+      }, 10_000);
+      this.sessionConfiguration = { resolve, reject, timeout };
+    });
     this.send({
       type: "session.update",
+      event_id: "jarvis-session-config",
       session: {
+        type: "realtime",
         modalities: ["text", "audio"],
         instructions:
           "You are Jarvis, Master's private butler and the real-time phone voice for his personal " +
@@ -176,6 +199,7 @@ export class RealtimeCallSession {
         tool_choice: "required",
       },
     });
+    await configured;
   }
 
   private requestGreeting(): void {
@@ -184,9 +208,15 @@ export class RealtimeCallSession {
       response: {
         modalities: ["audio"],
         tool_choice: "none",
+        // Repeat the required voice on the first response. The session has
+        // already been acknowledged above, so this is a redundant safeguard,
+        // not a late attempt to switch voices.
+        audio: { output: { voice: this.options.voice } },
+        conversation: "none",
         instructions:
-          "Speak the following German text verbatim. Do not translate it, paraphrase it, add a " +
-          `generic question, or call a tool: ${JSON.stringify(this.options.greeting)}`,
+          "Output exactly the following German sentence, character for character. Do not translate " +
+          "it, paraphrase it, add a greeting or generic question, or call a tool: " +
+          JSON.stringify(this.options.greeting),
       },
     });
   }
@@ -209,6 +239,12 @@ export class RealtimeCallSession {
     switch (event.type) {
       case "session.updated": {
         const effectiveVoice = event.session?.audio?.output?.voice ?? event.session?.voice;
+        const pending = this.sessionConfiguration;
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.sessionConfiguration = undefined;
+          pending.resolve();
+        }
         this.logger.info(
           { callId: this.transport.callId, requestedVoice: this.options.voice, effectiveVoice },
           "OpenAI Realtime session configured",
@@ -240,6 +276,12 @@ export class RealtimeCallSession {
         void this.finishResponse();
         return;
       case "error":
+        if (this.sessionConfiguration) {
+          const pending = this.sessionConfiguration;
+          clearTimeout(pending.timeout);
+          this.sessionConfiguration = undefined;
+          pending.reject(new Error(event.error?.message ?? "OpenAI Realtime rejected session configuration"));
+        }
         this.logger.error(
           { callId: this.transport.callId, error: event.error?.message, code: event.error?.code },
           "OpenAI Realtime rejected an event",
