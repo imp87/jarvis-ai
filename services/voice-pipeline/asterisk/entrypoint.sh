@@ -24,9 +24,17 @@ envsubst "$SUBST" < /etc/asterisk/templates/websocket_client.conf > /etc/asteris
 cp /etc/asterisk/templates/chan_websocket.conf /etc/asterisk/chan_websocket.conf
 chown asterisk:asterisk /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf /etc/asterisk/websocket_client.conf /etc/asterisk/chan_websocket.conf
 
-# Existing call files can predate the shared-UID fix. Repair the bounded spool
-# at startup so Asterisk no longer retries and warns about every historical
-# file; new files are already created under the same numeric uid.
+# Calls use MaxRetries: 0, so an outgoing file older than five minutes is
+# definitively stale. Keep it out of the active spool before repairing old
+# ownership: otherwise a restart could turn a historical, failed call into a
+# fresh attempt. It is archived rather than deleted for diagnostics.
+mkdir -p /var/spool/asterisk/stale
+find /var/spool/asterisk/outgoing -maxdepth 1 -type f -name '*.call' -mmin +5 \
+  -exec mv -t /var/spool/asterisk/stale -- {} +
+
+# Existing files can predate the shared-UID fix. New files already use the
+# same numeric uid, but repairing the remaining bounded spool avoids utime()
+# warnings for a call queued during a container restart.
 chown -R asterisk:asterisk /var/spool/asterisk
 
 # Fail loudly if a placeholder survived — a half-substituted registration would
