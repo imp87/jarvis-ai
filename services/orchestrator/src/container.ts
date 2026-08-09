@@ -18,6 +18,7 @@ import { buildBuiltinTools } from "./agent/tools/builtin.js";
 import { ToolRegistry } from "./agent/tools/registry.js";
 import { CallService } from "./services/calls.js";
 import { MemoryService } from "./services/memory.js";
+import { PolicyService } from "./services/policy.js";
 
 export interface Container {
   config: AppConfig;
@@ -37,6 +38,7 @@ export interface Container {
   tools: ToolRegistry;
   memory: MemoryService;
   calls: CallService;
+  policy: PolicyService;
   agent: AgentLoop;
   shutdown(): Promise<void>;
 }
@@ -75,16 +77,22 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
 
   const memory = new MemoryService(repos.memories, embeddings, logger);
 
+  // The environment supplies the deployed defaults; runtime_settings may
+  // override individual values without a restart.
+  const policy = new PolicyService(repos.settings, {
+    quietHours: {
+      start: env.QUIET_HOURS_START,
+      end: env.QUIET_HOURS_END,
+      timezone: env.QUIET_HOURS_TIMEZONE,
+    },
+    maxCallsPerHour: env.MAX_CALLS_PER_HOUR,
+    maxCallsPerDay: env.MAX_CALLS_PER_DAY,
+  });
+
   const calls = new CallService(
     repos.calls,
+    policy,
     {
-      quietHours: {
-        start: env.QUIET_HOURS_START,
-        end: env.QUIET_HOURS_END,
-        timezone: env.QUIET_HOURS_TIMEZONE,
-      },
-      maxPerHour: env.MAX_CALLS_PER_HOUR,
-      maxPerDay: env.MAX_CALLS_PER_DAY,
       voicePipelineUrl: env.VOICE_PIPELINE_URL,
       serviceToken: env.SERVICE_TOKEN,
     },
@@ -125,6 +133,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     tools,
     memory,
     calls,
+    policy,
     agent,
     async shutdown() {
       await mcp.disconnectAll();

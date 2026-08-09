@@ -35,7 +35,12 @@ export function statusRoutes(container: Container): Router {
   router.get(
     "/v1/status",
     asyncHandler(async (_req, res) => {
-      const tools = await container.tools.list();
+      const [tools, policy] = await Promise.all([
+        container.tools.list(),
+        // Resolved, not the environment values — otherwise the overview would
+        // report a quiet-hours window that is no longer the one being enforced.
+        container.policy.resolve(),
+      ]);
       res.json({
         profiles: container.router.listProfiles(),
         mcpServers: container.mcp.listServers(),
@@ -45,14 +50,13 @@ export function statusRoutes(container: Container): Router {
           sideEffects: t.sideEffects,
         })),
         policy: {
-          quietHours: {
-            start: container.config.env.QUIET_HOURS_START,
-            end: container.config.env.QUIET_HOURS_END,
-            timezone: container.config.env.QUIET_HOURS_TIMEZONE,
-          },
-          maxCallsPerHour: container.config.env.MAX_CALLS_PER_HOUR,
-          maxCallsPerDay: container.config.env.MAX_CALLS_PER_DAY,
+          quietHours: policy.quietHours,
+          maxCallsPerHour: policy.maxCallsPerHour,
+          maxCallsPerDay: policy.maxCallsPerDay,
+          // Still environment-only: this bounds a single turn's cost, which is
+          // a deployment concern rather than something to tune from a phone.
           maxAgentSteps: container.config.env.MAX_AGENT_STEPS,
+          overridden: policy.overridden,
         },
         callBudgetUsage: await container.repos.calls.budgetUsage(),
       });

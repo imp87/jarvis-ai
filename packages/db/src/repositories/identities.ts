@@ -75,6 +75,18 @@ export class IdentityRepository {
     );
   }
 
+  async listUsers(): Promise<UserRow[]> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      display_name: string;
+      is_owner: boolean;
+    }>(
+      // Owner first: on a personal system that is nearly always the row you want.
+      `SELECT id, display_name, is_owner FROM users ORDER BY is_owner DESC, display_name`,
+    );
+    return rows.map((r) => ({ id: r.id, displayName: r.display_name, isOwner: r.is_owner }));
+  }
+
   async listIdentities(): Promise<
     Array<{ channel: string; channelUserId: string; enabled: boolean; userId: string }>
   > {

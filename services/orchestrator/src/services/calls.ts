@@ -1,15 +1,8 @@
 import type { CallRepository, CallLogRow } from "@jarvis/db";
-import {
-  evaluateCallPolicy,
-  type CallRequest,
-  type Logger,
-  type QuietHours,
-} from "@jarvis/shared";
+import { evaluateCallPolicy, type CallRequest, type Logger } from "@jarvis/shared";
+import type { PolicyService } from "./policy.js";
 
 export interface CallServiceOptions {
-  quietHours: QuietHours;
-  maxPerHour: number;
-  maxPerDay: number;
   /** Voice pipeline base URL. When absent, calls are recorded but not placed. */
   voicePipelineUrl?: string | undefined;
   serviceToken: string;
@@ -28,17 +21,23 @@ export type CallOutcome =
 export class CallService {
   constructor(
     private readonly repo: CallRepository,
+    private readonly policy: PolicyService,
     private readonly options: CallServiceOptions,
     private readonly logger: Logger,
   ) {}
 
   async requestCall(request: CallRequest): Promise<CallOutcome> {
-    const usage = await this.repo.budgetUsage();
+    // Resolved per request: quiet hours edited in the admin UI must apply to the
+    // very next call, not after a restart.
+    const [usage, policy] = await Promise.all([
+      this.repo.budgetUsage(),
+      this.policy.resolve(),
+    ]);
     const decision = evaluateCallPolicy({
       now: new Date(),
       urgent: request.urgent,
-      quiet: this.options.quietHours,
-      budget: { maxPerHour: this.options.maxPerHour, maxPerDay: this.options.maxPerDay },
+      quiet: policy.quietHours,
+      budget: { maxPerHour: policy.maxCallsPerHour, maxPerDay: policy.maxCallsPerDay },
       usage,
     });
 

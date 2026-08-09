@@ -258,6 +258,75 @@ export async function reloadMcpServers(): Promise<ActionResult> {
   });
 }
 
+// --- Global policy ---------------------------------------------------------
+
+/**
+ * `null` clears an override and hands the setting back to the environment;
+ * omitting a key leaves it untouched. Keeping those apart is what makes "reset
+ * to the deployed default" possible at all.
+ */
+const policyPatchSchema = z.object({
+  quietHoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:MM").nullable(),
+  quietHoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:MM").nullable(),
+  quietHoursTimezone: z.string().min(1).max(64).nullable(),
+  maxCallsPerHour: z.number().int().min(0).max(100).nullable(),
+  maxCallsPerDay: z.number().int().min(0).max(500).nullable(),
+});
+
+export type PolicyPatch = z.infer<typeof policyPatchSchema>;
+
+export async function updatePolicy(raw: PolicyPatch): Promise<ActionResult> {
+  return attempt("Policy updated.", async () => {
+    const patch = policyPatchSchema.parse(raw);
+    await api.put("/v1/settings/policy", patch);
+    revalidatePath("/settings");
+    revalidatePath("/");
+    return ok("Saved — it applies to the next call, no restart needed.");
+  });
+}
+
+// --- Users -----------------------------------------------------------------
+
+export async function setIdentityEnabled(
+  channel: string,
+  channelUserId: string,
+  enabled: boolean,
+): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch("/v1/identities", { channel, channelUserId, enabled });
+    revalidatePath("/users");
+    return ok(
+      enabled
+        ? "Identity enabled — this channel can reach the agent again."
+        : "Identity disabled — messages from it are now rejected.",
+    );
+  });
+}
+
+const channelSettingsSchema = z.object({
+  replyFormat: z.enum(["text", "voice"]),
+  voiceId: z.string().max(128).nullable(),
+  language: z.string().min(2).max(16),
+});
+
+export type ChannelSettingsPatch = z.infer<typeof channelSettingsSchema>;
+
+export async function updateChannelSettings(
+  userId: string,
+  channel: string,
+  raw: ChannelSettingsPatch,
+): Promise<ActionResult> {
+  return attempt("Settings saved.", async () => {
+    const patch = channelSettingsSchema.parse(raw);
+    await api.put(
+      `/v1/users/${z.string().uuid().parse(userId)}/settings/${encodeURIComponent(channel)}`,
+      patch,
+    );
+    revalidatePath("/users");
+    return ok(`${channel} settings saved.`);
+  });
+}
+
 // --- Connectors ------------------------------------------------------------
 
 export async function createConnector(raw: ConnectorInput): Promise<ActionResult> {

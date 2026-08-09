@@ -23,6 +23,71 @@ export function adminRoutes(container: Container): Router {
     }),
   );
 
+  /**
+   * Users with everything the settings UI needs in one round trip: which
+   * channels they can reach the agent on, and how each of those replies.
+   */
+  router.get(
+    "/v1/users",
+    asyncHandler(async (_req, res) => {
+      const [users, identities] = await Promise.all([
+        repos.identities.listUsers(),
+        repos.identities.listIdentities(),
+      ]);
+      res.json({
+        users: await Promise.all(
+          users.map(async (user) => ({
+            ...user,
+            identities: identities.filter((i) => i.userId === user.id),
+            settings: await repos.settings.listForUser(user.id),
+          })),
+        ),
+      });
+    }),
+  );
+
+  // --- Global policy -------------------------------------------------------
+  //
+  // Quiet hours and the call budget are decisions about someone's evening, not
+  // deployment configuration. They are read from the database per call, so a
+  // change here applies to the next call rather than the next restart.
+
+  router.get(
+    "/v1/settings/policy",
+    asyncHandler(async (_req, res) => {
+      res.json({
+        policy: await container.policy.resolve(),
+        environmentDefaults: container.policy.environmentDefaults(),
+      });
+    }),
+  );
+
+  router.put(
+    "/v1/settings/policy",
+    asyncHandler(async (req, res) => {
+      // `null` clears an override and hands the setting back to the
+      // environment; omitting a key leaves it untouched. They are different
+      // intents and the schema has to keep them apart.
+      const timeOfDay = z
+        .string()
+        .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:MM")
+        .nullable();
+      const patch = z
+        .object({
+          quietHoursStart: timeOfDay.optional(),
+          quietHoursEnd: timeOfDay.optional(),
+          quietHoursTimezone: z.string().min(1).max(64).nullable().optional(),
+          maxCallsPerHour: z.coerce.number().int().min(0).max(100).nullable().optional(),
+          maxCallsPerDay: z.coerce.number().int().min(0).max(500).nullable().optional(),
+        })
+        .parse(req.body);
+
+      const policy = await container.policy.update(patch);
+      container.logger.info({ patch }, "call policy updated");
+      res.json({ policy, environmentDefaults: container.policy.environmentDefaults() });
+    }),
+  );
+
   router.post(
     "/v1/users",
     asyncHandler(async (req, res) => {

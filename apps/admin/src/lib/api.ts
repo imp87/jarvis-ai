@@ -78,6 +78,8 @@ export const api = {
     request<T>(path, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
@@ -135,6 +137,47 @@ export interface Status {
   callBudgetUsage: { lastHour: number; lastDay: number };
 }
 
+export interface PolicyDefaults {
+  quietHours: { start: string; end: string; timezone: string };
+  maxCallsPerHour: number;
+  maxCallsPerDay: number;
+}
+
+export interface ResolvedPolicy extends PolicyDefaults {
+  /** Which values come from the database rather than the deployed environment. */
+  overridden: {
+    quietHoursStart: boolean;
+    quietHoursEnd: boolean;
+    quietHoursTimezone: boolean;
+    maxCallsPerHour: boolean;
+    maxCallsPerDay: boolean;
+  };
+  updatedAt: string | null;
+}
+
+export interface ChannelSettings {
+  channel: string;
+  replyFormat: "text" | "voice";
+  voiceId: string | null;
+  language: string;
+}
+
+export interface AdminUser {
+  id: string;
+  displayName: string;
+  isOwner: boolean;
+  identities: Array<{
+    channel: string;
+    channelUserId: string;
+    enabled: boolean;
+    userId: string;
+  }>;
+  settings: ChannelSettings[];
+}
+
 export const getMcpServers = () => api.get<{ servers: McpServer[] }>("/v1/mcp/servers");
+export const getPolicy = () =>
+  api.get<{ policy: ResolvedPolicy; environmentDefaults: PolicyDefaults }>("/v1/settings/policy");
+export const getUsers = () => api.get<{ users: AdminUser[] }>("/v1/users");
 export const getConnectors = () => api.get<{ connectors: Connector[] }>("/v1/connectors");
 export const getStatus = () => api.get<Status>("/v1/status");
