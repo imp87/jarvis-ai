@@ -219,6 +219,14 @@ export class McpManager {
     }
 
     const listed = await client.listTools();
+    // Stripe's hosted MCP server requires a `stripe_context` value that is
+    // returned by a separate account-selection tool. It is an opaque value,
+    // not the human-readable account name, so asking the model to copy it
+    // reliably is needlessly brittle. For a single authorised account we load
+    // it once and attach it to every Stripe tool that declares the parameter.
+    const stripeContext = config.name.toLowerCase() === "stripe"
+      ? new StripeContextResolver(client, listed.tools, this.logger)
+      : undefined;
     const tools: ExecutableTool[] = listed.tools.map((tool) => ({
       name: toolName(config.name, tool.name),
       description: describeTool(config, tool.name, tool.description),
@@ -231,7 +239,10 @@ export class McpManager {
       // annotates otherwise via the readOnlyHint annotation.
       sideEffects: tool.annotations?.readOnlyHint !== true,
       execute: async (args): Promise<ToolResult> => {
-        const result = await client.callTool({ name: tool.name, arguments: args });
+        const effectiveArgs = stripeContext
+          ? await stripeContext.apply(tool.name, tool.inputSchema, args)
+          : args;
+        const result = await client.callTool({ name: tool.name, arguments: effectiveArgs });
         return {
           content: renderToolContent(result.content),
           ...(result.isError ? { isError: true } : {}),
@@ -293,6 +304,89 @@ export class McpManager {
   lastError(name: string): { error: string; at: number } | undefined {
     return this.failures.get(name);
   }
+}
+
+/**
+ * Resolves the opaque context required by Stripe's remote MCP. It deliberately
+ * only chooses automatically when exactly one account/org is authorised; with
+ * several, choosing the first could query the wrong business.
+ */
+class StripeContextResolver {
+  private context: string | undefined;
+  private attempted = false;
+
+  constructor(
+    private readonly client: Client,
+    private readonly tools: Array<{ name: string; inputSchema?: unknown }>,
+    private readonly logger: Logger,
+  ) {}
+
+  async apply(
+    toolName: string,
+    inputSchema: unknown,
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (toolName === "list_available_accounts_or_orgs" || !declaresStripeContext(inputSchema)) {
+      return args;
+    }
+    if (!this.context) await this.load();
+    // Intentionally overwrite an LLM-supplied display name or stale context:
+    // this value came from the active OAuth session moments ago.
+    return { ...args, stripe_context: this.context };
+  }
+
+  private async load(): Promise<void> {
+    if (this.attempted) {
+      throw new Error("Stripe account context is unavailable. Reconnect Stripe and try again.");
+    }
+    this.attempted = true;
+    const selector = this.tools.find((tool) => tool.name === "list_available_accounts_or_orgs");
+    if (!selector) {
+      throw new Error("Stripe MCP did not provide an account-context selector.");
+    }
+    const result = await this.client.callTool({ name: selector.name, arguments: {} });
+    const contexts = extractStripeContexts(renderToolContent(result.content));
+    if (contexts.length !== 1) {
+      throw new Error(
+        contexts.length === 0
+          ? "Stripe did not return an account context for this OAuth session."
+          : "Several Stripe accounts are authorised; select one explicitly before querying data.",
+      );
+    }
+    this.context = contexts[0];
+    this.logger.info({ contextCount: contexts.length }, "Stripe account context selected for MCP connection");
+  }
+}
+
+function declaresStripeContext(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object") return false;
+  const properties = (schema as { properties?: unknown }).properties;
+  return Boolean(
+    properties && typeof properties === "object" && "stripe_context" in properties,
+  );
+}
+
+function extractStripeContexts(content: string): string[] {
+  const found = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+    } else if (value && typeof value === "object") {
+      for (const [key, item] of Object.entries(value)) {
+        if (key === "stripe_context" && typeof item === "string" && item.trim()) found.add(item);
+        else visit(item);
+      }
+    }
+  };
+  try {
+    visit(JSON.parse(content));
+  } catch {
+    // Some MCP servers render a human-readable table rather than JSON.
+    for (const match of content.matchAll(/["']?stripe_context["']?\s*[:=]\s*["']?([^\s,"'}\]]+)/gi)) {
+      if (match[1]) found.add(match[1]);
+    }
+  }
+  return [...found];
 }
 
 /**
