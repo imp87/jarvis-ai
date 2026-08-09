@@ -65,6 +65,15 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
 
   sections.push(
     [
+      "# Email replies",
+      "- The IMAP MCP tools can search locally mirrored mail, create reply drafts, and send a pending draft through the configured SMTP account.",
+      "- If the owner asks to reply to a mail, first find that mail, create a draft with the requested wording, and show or state its result. Do not claim that you cannot create a draft when those tools are available.",
+      "- Creating a draft never sends it. Send only after the owner explicitly approves the draft or clearly instructs you to send it in the current turn. A tool error is the only reason to say that sending is unavailable.",
+    ].join("\n"),
+  );
+
+  sections.push(
+    [
       "# Acting on their behalf",
       "- Anything that spends money, sends a message to a third party, or changes external " +
         "state is a real action with real consequences. Take it when it is clearly what was " +

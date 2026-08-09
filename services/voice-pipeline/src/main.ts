@@ -53,13 +53,14 @@ const handleCall = async (
 ): Promise<void> => {
   const context = pendingContext.get(pending.callId);
   pendingContext.delete(pending.callId);
+  const outbound = splitOutboundContext(context);
 
   // An outbound call exists for a concrete reason. Never begin it with the
   // inbound "what can I do for you?" question: that makes a reminder call
   // sound like the recipient initiated it and can bury the actual reminder.
   const greeting =
     pending.direction === "outbound"
-      ? context?.trim() || "Master, Jarvis hier. Ich habe eine Erinnerung für Sie."
+      ? outbound.spoken || "Master, Jarvis hier. Ich habe eine Erinnerung für Sie."
       : env.VOICE_GREETING;
 
   logger.info(
@@ -82,6 +83,7 @@ const handleCall = async (
           voice: env.OPENAI_REALTIME_VOICE,
           greeting,
           idleHangupMs: env.VOICE_IDLE_HANGUP_MS,
+          ...(outbound.agentContext ? { outboundContext: outbound.agentContext } : {}),
         }).run()
       : await new CallSession(transport, speech, orchestrator, pending.channelUserId, logger, {
           greeting,
@@ -162,3 +164,12 @@ process.on("unhandledRejection", (reason) => {
   logger.fatal({ reason: String(reason) }, "unhandled rejection");
   process.exit(1);
 });
+
+function splitOutboundContext(value: string | undefined): { spoken: string; agentContext?: string } {
+  const marker = "\n\n[JARVIS_CONTEXT]\n";
+  const position = value?.indexOf(marker) ?? -1;
+  if (position < 0) return { spoken: value?.trim() ?? "" };
+  const spoken = value!.slice(0, position).trim();
+  const agentContext = value!.slice(position + marker.length).trim();
+  return { spoken, ...(agentContext ? { agentContext } : {}) };
+}

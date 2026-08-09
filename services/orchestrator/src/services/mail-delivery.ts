@@ -70,7 +70,12 @@ export class MailDeliveryService {
       summary: input.decision.summary,
       replyDraft: input.decision.replyDraft,
       fallbackChannel: input.decision.fallbackChannel,
-      callContext: `Master, wichtige E-Mail in ${input.accountName}: ${input.decision.summary}`,
+      callContext:
+        `Master, wichtige E-Mail in ${input.accountName}: ${input.decision.summary}.` +
+        "\n\n[JARVIS_CONTEXT]\n" +
+        (input.decision.draftId
+          ? `Ein Antwortentwurf mit der ID ${input.decision.draftId} liegt bereit. Wenn Master ihn freigibt, versende genau diesen Entwurf über den IMAP-MCP.`
+          : "Wenn Master antworten möchte, suche die Mail im IMAP-MCP und erstelle zuerst einen Antwortentwurf. Nach einer klaren Freigabe darfst du ihn versenden."),
       callsAttempted: 0,
       maxCallAttempts: 1 + input.decision.callRetryCount,
       retryDelayMinutes: input.decision.callRetryDelayMinutes,

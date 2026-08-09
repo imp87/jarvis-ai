@@ -13,6 +13,8 @@ export interface RealtimeSessionOptions {
   voice: string;
   greeting: string;
   idleHangupMs: number;
+  /** Private, server-generated context for the first delegated caller turn. */
+  outboundContext?: string | undefined;
 }
 
 type RealtimeEvent = {
@@ -51,6 +53,7 @@ export class RealtimeCallSession {
   private playback = Promise.resolve();
   private playbackGeneration = 0;
   private pendingEndCall: { reason: string } | undefined;
+  private outboundContextPending: string | undefined;
   private readonly handledFunctionCalls = new Set<string>();
   private sessionConfiguration:
     | { resolve: () => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }
@@ -62,7 +65,9 @@ export class RealtimeCallSession {
     private readonly channelUserId: string,
     private readonly logger: Logger,
     private readonly options: RealtimeSessionOptions,
-  ) {}
+  ) {
+    this.outboundContextPending = options.outboundContext?.trim();
+  }
 
   async run(): Promise<SessionResult> {
     const done = new Promise<SessionResult>((resolve) => {
@@ -310,9 +315,14 @@ export class RealtimeCallSession {
     } else {
       try {
         const started = Date.now();
+        const spokenByCaller = text;
+        const outboundContext = this.outboundContextPending;
+        this.outboundContextPending = undefined;
         const reply = await this.orchestrator.send({
           channelUserId: this.channelUserId,
-          text,
+          text: outboundContext
+            ? `Ausgehender Anruf – interner Arbeitskontext: ${outboundContext}\n\nAktuelle Aussage von Master: ${text}`
+            : text,
           ...(this.conversationId ? { conversationId: this.conversationId } : {}),
         });
         this.conversationId = reply.conversationId;
@@ -321,7 +331,7 @@ export class RealtimeCallSession {
         if (reply.endCall) this.pendingEndCall = reply.endCall;
         output = { reply: reply.reply, ...(reply.endCall ? { endCall: true } : {}) };
         this.logger.info(
-          { callId: this.transport.callId, turn: this.turns, heard: text, orchestratorMs: Date.now() - started },
+          { callId: this.transport.callId, turn: this.turns, heard: spokenByCaller, orchestratorMs: Date.now() - started },
           "realtime turn delegated",
         );
       } catch (err) {
