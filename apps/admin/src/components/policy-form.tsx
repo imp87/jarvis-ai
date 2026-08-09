@@ -47,10 +47,30 @@ export function PolicyForm({
     },
   });
 
+  /**
+   * A value equal to the deployed default is stored as "no override" rather
+   * than as an identical copy of it.
+   *
+   * Otherwise saving one field would pin all five, and changing a default in
+   * the environment later would silently fail to reach a system that looks
+   * untouched. An override should mean "deliberately different from the
+   * deployment", not "this form has been submitted once".
+   */
+  function asOverrides(values: PolicyPatch): PolicyPatch {
+    const same = <T,>(value: T, fallback: T) => (value === fallback ? null : value);
+    return {
+      quietHoursStart: same(values.quietHoursStart, defaults.quietHours.start),
+      quietHoursEnd: same(values.quietHoursEnd, defaults.quietHours.end),
+      quietHoursTimezone: same(values.quietHoursTimezone, defaults.quietHours.timezone),
+      maxCallsPerHour: same(values.maxCallsPerHour, defaults.maxCallsPerHour),
+      maxCallsPerDay: same(values.maxCallsPerDay, defaults.maxCallsPerDay),
+    };
+  }
+
   async function submit(values: PolicyPatch) {
     setPending(true);
     try {
-      const result = await updatePolicy(values);
+      const result = await updatePolicy(asOverrides(values));
       notifyResult(result);
       if (result.fieldErrors) form.setErrors(result.fieldErrors);
     } finally {
@@ -62,7 +82,7 @@ export function PolicyForm({
   async function reset(field: Field, formKey: keyof PolicyPatch) {
     setPending(true);
     try {
-      const result = await updatePolicy({ ...form.values, [formKey]: null });
+      const result = await updatePolicy({ ...asOverrides(form.values), [formKey]: null });
       notifyResult(result);
       if (result.status !== "error") {
         form.setFieldValue(formKey, envValueFor(field, defaults) as never);
