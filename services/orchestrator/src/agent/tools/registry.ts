@@ -1,6 +1,12 @@
 import type { RegistryRepository } from "@jarvis/db";
 import type { McpManager } from "@jarvis/mcp";
-import type { ExecutableTool, Logger, ToolContext, ToolResult } from "@jarvis/shared";
+import type {
+  ChannelName,
+  ExecutableTool,
+  Logger,
+  ToolContext,
+  ToolResult,
+} from "@jarvis/shared";
 import { buildConnectorTool } from "./connectors.js";
 
 /**
@@ -18,7 +24,11 @@ export class ToolRegistry {
     private readonly logger: Logger,
   ) {}
 
-  async list(): Promise<ExecutableTool[]> {
+  /**
+   * @param channel Restricts the result to tools usable on this channel. Omit —
+   * as the status endpoint does — to see everything that is registered.
+   */
+  async list(channel?: ChannelName): Promise<ExecutableTool[]> {
     const connectorTools: ExecutableTool[] = [];
     try {
       const rows = await this.registryRepo.listCallableEndpoints();
@@ -31,7 +41,9 @@ export class ToolRegistry {
       this.logger.error({ err: String(err) }, "failed to load connector tools");
     }
 
-    const all = [...this.builtins, ...this.mcp.listTools(), ...connectorTools];
+    const all = [...this.builtins, ...this.mcp.listTools(), ...connectorTools].filter(
+      (tool) => !channel || !tool.channels || tool.channels.includes(channel),
+    );
 
     // A duplicate tool name makes the model's choice ambiguous and the provider
     // may reject the request outright. Drop the later one and say so loudly.

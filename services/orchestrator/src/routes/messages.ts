@@ -62,6 +62,10 @@ export function messageRoutes(container: Container): Router {
         replyFormat: settings.replyFormat,
         voiceId: settings.voiceId,
         language: settings.language,
+        // Only the voice pipeline acts on this; every other adapter ignores it.
+        // Null rather than absent so a client can tell "not requested" from
+        // "this orchestrator is too old to say".
+        endCall: result.endCall ?? null,
         diagnostics: {
           steps: result.steps,
           toolCalls: result.toolCalls,

@@ -8,6 +8,11 @@ export interface ResolvedCaller {
 export interface ReplyResult {
   conversationId: string;
   reply: string;
+  /**
+   * Set when the agent called `end_call`. The reply is still spoken first —
+   * this asks for the line to close afterwards, not instead.
+   */
+  endCall?: { reason: string } | null;
 }
 
 /**

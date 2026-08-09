@@ -18,7 +18,8 @@ export interface SessionOptions {
 export interface SessionResult {
   turns: number;
   transcript: Array<{ role: "user" | "assistant"; text: string }>;
-  endedBecause: "hangup" | "idle" | "error";
+  /** `agent` means Jarvis hung up itself, via the `end_call` tool. */
+  endedBecause: "hangup" | "idle" | "error" | "agent";
 }
 
 /**
@@ -151,7 +152,6 @@ export class CallSession {
       const text = heard.text.trim();
       if (text.length === 0) {
         this.logger.debug({ callId: this.transport.callId, durationMs }, "empty transcription");
-        this.processing = false;
         return;
       }
 
@@ -176,24 +176,48 @@ export class CallSession {
           sttMs,
           llmMs,
           heard: text,
+          ...(reply.endCall ? { endCall: reply.endCall.reason } : {}),
         },
         "turn processed",
       );
 
-      this.processing = false;
       await this.say(reply.reply);
+
+      // Only now: `say` resolves once the audio has actually been played out,
+      // so the goodbye is heard in full rather than cut off by the hangup.
+      if (reply.endCall) await this.hangUp(reply.endCall.reason);
     } catch (err) {
       this.logger.error(
         { callId: this.transport.callId, err: String(err) },
         "turn failed",
       );
-      this.processing = false;
       // Say something rather than leaving dead air — silence on a phone call is
       // indistinguishable from a dropped connection.
       await this.say("Entschuldigung, da ist bei mir gerade etwas schiefgelaufen.").catch(
         () => undefined,
       );
+    } finally {
+      // Held until the reply has actually been spoken, so `busy` has no gap
+      // between thinking and speaking. Clearing it before `say` left a window in
+      // which the turn looked finished, and anything waiting on `busy` — the
+      // loopback harness, and barge-in later — would act mid-answer.
+      this.processing = false;
     }
+  }
+
+  /** The agent hanging up on its own initiative, via the `end_call` tool. */
+  private async hangUp(reason: string): Promise<void> {
+    if (this.finished) return;
+    this.logger.info({ callId: this.transport.callId, reason }, "agent ended the call");
+    // The transport's own hangup handler would report this as a caller hangup,
+    // so record why before letting it fire.
+    this.finish("agent");
+    await this.transport.hangup().catch((err: unknown) => {
+      this.logger.warn(
+        { callId: this.transport.callId, err: String(err) },
+        "hangup failed; the line may already be down",
+      );
+    });
   }
 
   private async say(text: string): Promise<void> {

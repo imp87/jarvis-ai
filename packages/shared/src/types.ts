@@ -82,6 +82,14 @@ export interface ExecutableTool extends ToolDefinition {
   source: "builtin" | "mcp" | "connector";
   /** True for anything that costs money, sends messages or changes external state. */
   sideEffects: boolean;
+  /**
+   * Restricts the tool to these channels. Omit to offer it everywhere.
+   *
+   * Hanging up is meaningless in a Telegram chat, and a model that can see a
+   * tool it cannot use will try it anyway — so such tools are withheld rather
+   * than left to fail.
+   */
+  channels?: ChannelName[];
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -90,6 +98,21 @@ export interface ToolContext {
   userId: string;
   /** Set when the call originated from a channel adapter. */
   channel?: ChannelName;
+  /** Where a tool records a request for the caller of the turn. See `TurnSignals`. */
+  signals?: TurnSignals;
+}
+
+/**
+ * Out-of-band requests a tool makes of whoever is running the turn.
+ *
+ * A tool cannot hang up a phone call itself — it runs inside the orchestrator,
+ * which holds no audio. It records the intent here instead, the agent loop
+ * returns it with the reply, and the voice pipeline acts on it once the reply
+ * has actually been spoken. Ending the call from inside the tool would cut the
+ * agent off mid-goodbye.
+ */
+export interface TurnSignals {
+  endCall?: { reason: string };
 }
 
 // ---------------------------------------------------------------------------

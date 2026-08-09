@@ -6,6 +6,7 @@ import type {
   ExecutableTool,
   Logger,
   LlmMessage,
+  TurnSignals,
 } from "@jarvis/shared";
 import { buildSystemPrompt } from "./prompt.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -27,6 +28,11 @@ export interface AgentRunResult {
   steps: number;
   toolCalls: string[];
   stoppedBecause: "end_turn" | "max_steps" | "refusal" | "max_tokens" | "other";
+  /**
+   * Set when the agent asked to hang up. The caller is expected to deliver
+   * `reply` first — this is a request to end the call after it, not instead of it.
+   */
+  endCall?: { reason: string };
 }
 
 export interface AgentLoopOptions {
@@ -73,7 +79,8 @@ export class AgentLoop {
       memoryContext,
     });
 
-    const available: ExecutableTool[] = await this.tools.list();
+    // Tools a channel cannot support are never offered — see `ExecutableTool.channels`.
+    const available: ExecutableTool[] = await this.tools.list(channel);
     const toolDefinitions = available.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -82,7 +89,16 @@ export class AgentLoop {
 
     const messages: LlmMessage[] = [...history];
     const toolCallNames: string[] = [];
+    // Shared with every tool this turn; `end_call` writes into it.
+    const signals: TurnSignals = {};
     let steps = 0;
+
+    const finish = (
+      result: Omit<AgentRunResult, "endCall">,
+    ): AgentRunResult => ({
+      ...result,
+      ...(signals.endCall ? { endCall: signals.endCall } : {}),
+    });
 
     while (steps < this.options.maxSteps) {
       steps += 1;
@@ -117,7 +133,7 @@ export class AgentLoop {
           { conversationId, category: response.refusal?.category },
           "model declined the request",
         );
-        return {
+        return finish({
           reply:
             "I can't help with that one — the safety classifier declined the request. " +
             "If you think that's wrong, rephrase it or tell me more about what you need.",
@@ -125,19 +141,19 @@ export class AgentLoop {
           steps,
           toolCalls: toolCallNames,
           stoppedBecause: "refusal",
-        };
+        });
       }
 
       const calls = toolCallsOf(response.content);
       if (response.stopReason !== "tool_call" || calls.length === 0) {
         const reply = textOf(response.content);
-        return {
+        return finish({
           reply: reply || "(the model returned no text)",
           conversationId,
           steps,
           toolCalls: toolCallNames,
           stoppedBecause: response.stopReason === "max_tokens" ? "max_tokens" : "end_turn",
-        };
+        });
       }
 
       // Parallel tool calls arrive together and must all come back in a single
@@ -149,6 +165,7 @@ export class AgentLoop {
             conversationId,
             userId,
             channel,
+            signals,
           });
           return { call, result };
         }),
@@ -175,7 +192,7 @@ export class AgentLoop {
       { conversationId, steps, toolCalls: toolCallNames },
       "agent hit the step ceiling",
     );
-    return {
+    return finish({
       reply:
         `I worked through ${steps} steps without finishing and stopped at the step limit. ` +
         `Here's where I got to — ask me to continue if this looks right so far: ` +
@@ -184,6 +201,6 @@ export class AgentLoop {
       steps,
       toolCalls: toolCallNames,
       stoppedBecause: "max_steps",
-    };
+    });
   }
 }

@@ -78,6 +78,51 @@ export function buildBuiltinTools(deps: {
         return { content: `Saved (id ${id}).` };
       },
     },
+    {
+      name: "end_call",
+      description:
+        "Hang up the phone call you are on. Use it as soon as the conversation is finished — " +
+        "the other person has said goodbye, you have delivered what you called about, or they " +
+        "ask you to hang up.\n\n" +
+        "Call this BEFORE your closing words, not after. Nothing is cut off: the tool returns, " +
+        "you then say your goodbye as normal, it is spoken in full, and the line closes after " +
+        "it. Saying goodbye without calling this leaves the other person listening to silence " +
+        "until the call times out.\n\n" +
+        "Do not call it while anything is still unresolved — there is no way to call back into " +
+        "the same conversation.",
+      source: "builtin",
+      // Ends a live call. Irreversible for that conversation.
+      sideEffects: true,
+      // Withheld on every other channel; there is nothing to hang up in a chat.
+      channels: ["voice_call"],
+      inputSchema: {
+        type: "object",
+        properties: {
+          reason: {
+            type: "string",
+            description: "One short line on why the call is over, for the call log.",
+          },
+        },
+        required: ["reason"],
+      },
+      async execute(args, ctx): Promise<ToolResult> {
+        if (!ctx.signals) {
+          // Reached when something ran the agent outside a live call — the admin
+          // UI's dry run, for instance. Better to say so than to claim success.
+          return {
+            content: "There is no call to end in this context.",
+            isError: true,
+          };
+        }
+        const reason = String(args["reason"] ?? "").trim() || "conversation finished";
+        ctx.signals.endCall = { reason };
+        return {
+          content:
+            "Ready to hang up. Now say your goodbye — it is spoken in full and the line " +
+            "closes afterwards. Keep it to one short sentence.",
+        };
+      },
+    },
   ];
 
   // Only offer the call tool when there is a number to dial. An agent that can
