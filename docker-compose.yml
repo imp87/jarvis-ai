@@ -88,6 +88,26 @@ services:
     healthcheck:
       disable: true
 
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      ORCHESTRATOR_URL: http://orchestrator:8080
+      # Held server-side only: the browser never sees it, so a session on this
+      # UI cannot be turned into direct access to the orchestrator.
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
+    ports:
+      # Loopback only, like everything else — Nginx Proxy Manager terminates TLS.
+      - "127.0.0.1:${ADMIN_HOST_PORT:-18783}:3000"
+
   telegram-adapter:
     build:
       context: .

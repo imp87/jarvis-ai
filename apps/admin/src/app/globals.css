@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/*
+ * One committed dark theme. This is an operator tool that runs on a loopback
+ * port next to a terminal, not a public site — a theme switcher would be more
+ * code than the problem deserves.
+ */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-zinc-950);
+  color: var(--color-zinc-200);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Native controls otherwise render light-on-light inside the dark surfaces. */
+select option {
+  background-color: var(--color-zinc-900);
+  color: var(--color-zinc-100);
+}
+
+summary {
+  cursor: pointer;
+}
+summary::-webkit-details-marker {
+  display: none;
+}

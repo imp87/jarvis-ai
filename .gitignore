@@ -3,6 +3,12 @@ dist/
 .turbo/
 *.tsbuildinfo
 
+# Next.js build output (apps/admin). .next-dev is the dev server's own
+# directory — see apps/admin/next.config.mjs for why they are separate.
+.next/
+.next-dev/
+next-env.d.ts
+
 # Secrets — never commit
 .env
 .env.*

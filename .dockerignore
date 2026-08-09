@@ -4,6 +4,8 @@
 # makes builds enormously slower.
 node_modules
 **/node_modules
+apps/admin/.next
+apps/admin/.next-dev
 
 # Build output is produced inside the image.
 dist

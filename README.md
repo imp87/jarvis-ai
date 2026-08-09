@@ -39,6 +39,21 @@ pnpm orchestrator:dev
 Check it: `curl localhost:18780/health`, then
 `curl -H "authorization: Bearer $SERVICE_TOKEN" localhost:18780/v1/status`.
 
+### Admin UI
+
+Set `ADMIN_PASSWORD` in `.env` (at least 12 characters), then:
+
+```bash
+pnpm admin:dev        # http://localhost:3800
+```
+
+Attaching an MCP server, adding an HTTP connector and its endpoints, and seeing
+which tools the agent currently has all happen here instead of by curl. The
+orchestrator's `SERVICE_TOKEN` stays server-side — every call goes through the
+Next.js server, so a browser session can never be turned into direct API access.
+When a server fails to connect, the reason is shown on the server's row rather
+than only in the orchestrator log.
+
 ### First user
 
 Nothing can talk to the agent until an identity is registered — an unknown
@@ -72,7 +87,10 @@ packages/
   mcp/       generic MCP client layer — any MCP server becomes agent tools
 services/
   orchestrator/  Express API, agent loop, tool registry  ← the core
-apps/          (Next.js admin UI — next phase)
+  telegram-adapter/  Bot API long polling, voice notes in and out
+  voice-pipeline/    SIP calls via Asterisk + AudioSocket
+apps/
+  admin/     Next.js admin UI — MCP servers and connectors without curl
 docs/          architecture, roadmap, PC-daemon protocol
 ```
 
@@ -92,6 +110,7 @@ kind of object. See [docs/architecture.md](docs/architecture.md#why-a-monorepo).
 | `docker compose run --rm migrate` | The same migrations, from the image — needs nothing but Docker |
 | `pnpm orchestrator:dev` | Run the orchestrator with hot reload |
 | `pnpm telegram:dev` | Run the Telegram adapter with hot reload |
+| `pnpm admin:dev` | Run the admin UI with hot reload (port 3800) |
 
 **Run the services in separate terminals, not via `turbo run dev`.** Turbo
 multiplexes persistent tasks into one output stream (or a TUI pane per task),
@@ -104,7 +123,7 @@ long-lived processes it only hides information you need.
 
 ```bash
 docker compose build
-docker compose up -d postgres orchestrator
+docker compose up -d postgres orchestrator admin
 ```
 
 Migrations from the image, so a server needs no Node or pnpm installed:

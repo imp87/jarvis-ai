@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppError, NotFoundError, encryptSecret } from "@jarvis/shared";
 import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
-import { connectRegisteredMcpServers } from "../container.js";
+import { connectRegisteredMcpServers, toMcpServerConfig } from "../container.js";
 
 const authTypeSchema = z.enum(["none", "api_key_header", "bearer", "basic", "query_param"]);
 const methodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
@@ -198,17 +198,26 @@ export function registryRoutes(container: Container): Router {
       const rows = await repos.registry.listMcpServers();
       const connected = new Map(mcp.listServers().map((s) => [s.name, s]));
       res.json({
-        servers: rows.map((row) => ({
-          id: row.id,
-          name: row.name,
-          description: row.description,
-          transport: row.transport,
-          url: row.url,
-          command: row.command,
-          enabled: row.enabled,
-          connected: connected.has(row.name),
-          toolCount: connected.get(row.name)?.toolCount ?? 0,
-        })),
+        servers: rows.map((row) => {
+          const failure = mcp.lastError(row.name);
+          return {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            transport: row.transport,
+            url: row.url,
+            command: row.command,
+            args: row.args,
+            hasSecrets: Boolean(row.secretsEnc),
+            enabled: row.enabled,
+            connected: connected.has(row.name),
+            toolCount: connected.get(row.name)?.toolCount ?? 0,
+            toolNames: mcp.toolNamesFor(row.name),
+            // Why it is not connected, when it failed rather than being off.
+            lastError: failure?.error ?? null,
+            lastErrorAt: failure ? new Date(failure.at).toISOString() : null,
+          };
+        }),
       });
     }),
   );
@@ -246,6 +255,44 @@ export function registryRoutes(container: Container): Router {
         res.status(201).json({
           id: row.id,
           name: row.name,
+          connected: false,
+          connectError: (err as Error).message,
+        });
+      }
+    }),
+  );
+
+  /**
+   * Enable or disable a server without deleting it — the registration and its
+   * secrets survive, so switching a flaky server off while debugging does not
+   * mean re-entering its credential afterwards.
+   *
+   * Enabling connects immediately, mirroring registration: a connect failure is
+   * reported but leaves the row enabled, since the fix is usually on the server
+   * side and flipping the flag back would only hide it.
+   */
+  router.patch(
+    "/v1/mcp/servers/:id",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params["id"]);
+      const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+      const row = await repos.registry.getMcpServer(id);
+      if (!row) throw new NotFoundError("mcp server not found");
+
+      await repos.registry.setMcpServerEnabled(id, enabled);
+      if (!enabled) {
+        await mcp.disconnect(row.name);
+        return res.json({ id, enabled, connected: false });
+      }
+
+      try {
+        await mcp.connect(toMcpServerConfig({ ...row, enabled }, masterKey, logger));
+        return res.json({ id, enabled, connected: true });
+      } catch (err) {
+        logger.error({ server: row.name, err: String(err) }, "MCP connect failed after enabling");
+        return res.json({
+          id,
+          enabled,
           connected: false,
           connectError: (err as Error).message,
         });

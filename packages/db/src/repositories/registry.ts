@@ -223,6 +223,20 @@ export class RegistryRepository {
     return mapMcpServer(rows[0] as Record<string, unknown>);
   }
 
+  async getMcpServer(id: string): Promise<McpServerRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, name, description, transport, url, command, args, secrets_enc, enabled
+         FROM mcp_servers WHERE id = $1`,
+      [id],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapMcpServer(row) : null;
+  }
+
+  async setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.pool.query(`UPDATE mcp_servers SET enabled = $2 WHERE id = $1`, [id, enabled]);
+  }
+
   async deleteMcpServer(id: string): Promise<boolean> {
     const result = await this.pool.query(`DELETE FROM mcp_servers WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;

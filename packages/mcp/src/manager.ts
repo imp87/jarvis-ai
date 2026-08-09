@@ -85,6 +85,15 @@ function describeTool(
 
 export class McpManager {
   private readonly connections = new Map<string, Connection>();
+  /**
+   * Why a server is not connected, kept until it connects or is removed.
+   *
+   * Without this a failed server is simply absent from `listServers()`, and the
+   * admin UI can only report "not connected" with no reason — which is the
+   * hardest part of attaching a new server to debug, since the actual cause
+   * (wrong command, missing env var, 401) only ever reached the log.
+   */
+  private readonly failures = new Map<string, { error: string; at: number }>();
 
   constructor(private readonly logger: Logger) {}
 
@@ -107,6 +116,16 @@ export class McpManager {
   }
 
   async connect(config: McpServerConfig): Promise<void> {
+    try {
+      await this.doConnect(config);
+      this.failures.delete(config.name);
+    } catch (err) {
+      this.failures.set(config.name, { error: describeError(err), at: Date.now() });
+      throw err;
+    }
+  }
+
+  private async doConnect(config: McpServerConfig): Promise<void> {
     await this.disconnect(config.name);
 
     const client = new Client(
@@ -114,23 +133,47 @@ export class McpManager {
       { capabilities: {} },
     );
 
+    // A failed handshake surfaces as a bare "MCP error -32000: Connection
+    // closed". The cause always arrives somewhere else — on the transport's
+    // error callback, or on the child process's stderr — so both are collected
+    // here and folded into the thrown error.
+    const diagnostics = new ConnectDiagnostics();
+    let transport: StreamableHTTPClientTransport | StdioClientTransport;
+
     if (config.transport === "http") {
       if (!config.url) throw new Error(`MCP server "${config.name}" has no url`);
-      const transport = new StreamableHTTPClientTransport(
+      transport = new StreamableHTTPClientTransport(
         new URL(expandEnv(config.url, config.name)),
         { requestInit: { headers: config.secrets ?? {} } },
       );
-      await client.connect(transport);
     } else {
       if (!config.command) throw new Error(`MCP server "${config.name}" has no command`);
-      const transport = new StdioClientTransport({
+      const stdio = new StdioClientTransport({
         command: expandEnv(config.command, config.name),
         args: (config.args ?? []).map((arg) => expandEnv(arg, config.name)),
         // Only the secrets this server needs — not the orchestrator's whole
         // environment, which holds every other provider's API key.
         env: { ...config.secrets },
+        // Default is "inherit", which puts the server's own error output on the
+        // orchestrator's stderr where nothing can read it back. Piping keeps it
+        // attributable to the server that produced it.
+        stderr: "pipe",
       });
+      stdio.stderr?.on("data", (chunk: Buffer | string) => {
+        const text = String(chunk).trim();
+        if (!text) return;
+        diagnostics.addStderr(text);
+        this.logger.debug({ server: config.name, stderr: text }, "MCP server stderr");
+      });
+      transport = stdio;
+    }
+
+    transport.onerror = (err) => diagnostics.addError(err);
+
+    try {
       await client.connect(transport);
+    } catch (err) {
+      throw diagnostics.enrich(err);
     }
 
     const listed = await client.listTools();
@@ -162,6 +205,7 @@ export class McpManager {
   }
 
   async disconnect(name: string): Promise<void> {
+    this.failures.delete(name);
     const connection = this.connections.get(name);
     if (!connection) return;
     this.connections.delete(name);
@@ -185,6 +229,69 @@ export class McpManager {
       toolCount: c.tools.length,
     }));
   }
+
+  /** The tool names a connected server contributes — what the UI lists per server. */
+  toolNamesFor(name: string): string[] {
+    return this.connections.get(name)?.tools.map((t) => t.name) ?? [];
+  }
+
+  /** Why this server is not connected, if it failed rather than being absent. */
+  lastError(name: string): { error: string; at: number } | undefined {
+    return this.failures.get(name);
+  }
+}
+
+/**
+ * Collects what the SDK reports out-of-band during a connection attempt, so a
+ * failure can say "spawn npx ENOENT" instead of "Connection closed".
+ */
+class ConnectDiagnostics {
+  private readonly errors: string[] = [];
+  private readonly stderr: string[] = [];
+
+  addError(err: Error): void {
+    const message = describeError(err);
+    if (message && !this.errors.includes(message)) this.errors.push(message);
+  }
+
+  addStderr(text: string): void {
+    // A crashing server can produce a lot; the first lines carry the cause and
+    // the rest is stack. Keep enough to be useful and no more.
+    if (this.stderr.length < 10) this.stderr.push(text);
+  }
+
+  enrich(err: unknown): Error {
+    const parts = [describeError(err), ...this.errors];
+    const output = this.stderr.join("\n").trim();
+    if (output) parts.push(`server output: ${truncate(output, 600)}`);
+    // Deduplicated: the transport error and the thrown error are often the same
+    // string, and repeating it reads like two separate problems.
+    return new Error([...new Set(parts.filter(Boolean))].join(" — "), { cause: err });
+  }
+}
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+/**
+ * MCP transport errors nest the useful part: a stdio server that exits reports
+ * a generic "connection closed" while the real cause (command not found, bad
+ * env var) is in the cause chain. Flattening it is what makes the message
+ * actionable in the UI.
+ */
+function describeError(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    const message = current instanceof Error ? current.message : String(current);
+    // `some(includes)` rather than `includes`: an already-enriched error carries
+    // its cause's text inside its own message, and repeating it verbatim reads
+    // like two distinct failures.
+    if (message && !parts.some((part) => part.includes(message))) parts.push(message);
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(": ") || "unknown error";
 }
 
 /** MCP returns structured content; the agent loop needs a single string. */

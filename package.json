@@ -13,7 +13,8 @@
     "clean": "turbo run clean && rimraf node_modules",
     "db:migrate": "pnpm --filter @jarvis/db run migrate",
     "orchestrator:dev": "pnpm --filter @jarvis/orchestrator run dev",
-    "telegram:dev": "pnpm --filter @jarvis/telegram-adapter run dev"
+    "telegram:dev": "pnpm --filter @jarvis/telegram-adapter run dev",
+    "admin:dev": "pnpm --filter @jarvis/admin run dev"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

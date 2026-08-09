@@ -6,6 +6,7 @@ import {
   RegistryRepository,
   SettingsRepository,
   createPool,
+  type McpServerRow,
   type Pool,
 } from "@jarvis/db";
 import { buildEmbeddingProvider, buildProviders, type LlmRouter } from "@jarvis/llm";
@@ -124,6 +125,34 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
   };
 }
 
+/** Turns a stored registry row into a connectable config, decrypting secrets. */
+export function toMcpServerConfig(
+  row: McpServerRow,
+  masterKey: Buffer,
+  logger: Logger,
+): McpServerConfig {
+  let secrets: Record<string, string> | undefined;
+  if (row.secretsEnc) {
+    try {
+      secrets = JSON.parse(decryptSecret(row.secretsEnc, masterKey)) as Record<string, string>;
+    } catch (err) {
+      logger.error(
+        { server: row.name, err: String(err) },
+        "could not decrypt MCP secrets; connecting without them",
+      );
+    }
+  }
+  return {
+    name: row.name,
+    description: row.description,
+    transport: row.transport,
+    url: row.url,
+    command: row.command,
+    args: row.args,
+    ...(secrets ? { secrets } : {}),
+  };
+}
+
 /** Reads MCP servers from the registry and connects them, decrypting secrets. */
 export async function connectRegisteredMcpServers(
   mcp: McpManager,
@@ -132,27 +161,5 @@ export async function connectRegisteredMcpServers(
   logger: Logger,
 ): Promise<void> {
   const rows = await registry.listMcpServers(true);
-  const configs: McpServerConfig[] = rows.map((row) => {
-    let secrets: Record<string, string> | undefined;
-    if (row.secretsEnc) {
-      try {
-        secrets = JSON.parse(decryptSecret(row.secretsEnc, masterKey)) as Record<string, string>;
-      } catch (err) {
-        logger.error(
-          { server: row.name, err: String(err) },
-          "could not decrypt MCP secrets; connecting without them",
-        );
-      }
-    }
-    return {
-      name: row.name,
-      description: row.description,
-      transport: row.transport,
-      url: row.url,
-      command: row.command,
-      args: row.args,
-      ...(secrets ? { secrets } : {}),
-    };
-  });
-  await mcp.connectAll(configs);
+  await mcp.connectAll(rows.map((row) => toMcpServerConfig(row, masterKey, logger)));
 }
