@@ -1,103 +1,62 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Group, Stack, Textarea, TextInput } from "@mantine/core";
+import { useForm } from "@mantine/form";
 import { createConnector } from "@/app/actions";
-import { ActionForm, SubmitButton } from "@/components/form";
-import { Field, Input, Select, Textarea } from "@/components/ui";
-
-const AUTH_TYPES = [
-  { value: "none", label: "none — public API" },
-  { value: "bearer", label: "bearer — Authorization: Bearer <token>" },
-  { value: "api_key_header", label: "api_key_header — a named header" },
-  { value: "query_param", label: "query_param — a named query parameter" },
-  { value: "basic", label: "basic — HTTP basic auth" },
-] as const;
-
-/** Only two of the five auth types need a parameter name; the rest imply it. */
-const NEEDS_PARAM_NAME = new Set(["api_key_header", "query_param"]);
+import { AuthFields } from "@/components/auth-fields";
+import { notifyResult, zodValidate } from "@/lib/form";
+import { connectorSchema, emptyConnector, type ConnectorInput } from "@/lib/schemas";
 
 export function ConnectorForm() {
-  const [authType, setAuthType] = useState<string>("none");
+  const [pending, setPending] = useState(false);
+  const form = useForm<ConnectorInput>({
+    initialValues: emptyConnector,
+    validate: zodValidate(connectorSchema),
+    validateInputOnBlur: true,
+  });
+
+  async function submit(values: ConnectorInput) {
+    setPending(true);
+    try {
+      const result = await createConnector(values);
+      notifyResult(result);
+      if (result.fieldErrors) form.setErrors(result.fieldErrors);
+      if (result.status === "success") form.reset();
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <ActionForm action={createConnector} className="space-y-4">
-      {(state) => (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name">
-              <Input
-                name="name"
-                placeholder="Wetter"
-                defaultValue={state.values?.["name"] ?? ""}
-                required
-              />
-            </Field>
-            <Field label="Base URL">
-              <Input
-                name="baseUrl"
-                type="url"
-                placeholder="https://api.example.com/v1"
-                defaultValue={state.values?.["baseUrl"] ?? ""}
-                required
-              />
-            </Field>
-          </div>
+    <form onSubmit={form.onSubmit(submit)}>
+      <Stack gap="md">
+        <Group grow align="flex-start">
+          <TextInput label="Name" placeholder="Wetter" {...form.getInputProps("name")} />
+          <TextInput
+            label="Base URL"
+            placeholder="https://api.example.com/v1"
+            {...form.getInputProps("baseUrl")}
+          />
+        </Group>
 
-          <Field
-            label="What it is for"
-            hint="This is what the model matches a request against. Describe capability, not branding."
-          >
-            <Textarea
-              name="description"
-              rows={2}
-              placeholder="Current weather and forecasts for any location, by city name or coordinates."
-              defaultValue={state.values?.["description"] ?? ""}
-              required
-            />
-          </Field>
+        <Textarea
+          label="What it is for"
+          description="What the model matches a request against. Describe capability, not branding."
+          placeholder="Current weather and forecasts for any location, by city name or coordinates."
+          autosize
+          minRows={2}
+          {...form.getInputProps("description")}
+        />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Authentication">
-              <Select
-                name="authType"
-                value={authType}
-                onChange={(e) => setAuthType(e.target.value)}
-              >
-                {AUTH_TYPES.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+        <AuthFields form={form} secretLabel="Key" />
 
-            {NEEDS_PARAM_NAME.has(authType) && (
-              <Field
-                label={authType === "api_key_header" ? "Header name" : "Query parameter name"}
-                hint={authType === "api_key_header" ? "e.g. X-API-Key" : "e.g. apikey"}
-              >
-                <Input
-                  name="authParamName"
-                  defaultValue={state.values?.["authParamName"] ?? ""}
-                  required
-                />
-              </Field>
-            )}
-          </div>
-
-          {authType !== "none" && (
-            <Field
-              label="Credential"
-              hint="AES-256-GCM encrypted with MASTER_KEY before it reaches the database, decrypted only at call time, and never returned by any API — including this one."
-            >
-              {/* Never echoed back on failure — see attempt.ts. */}
-              <Input name="credential" type="password" autoComplete="off" required />
-            </Field>
-          )}
-
-          <SubmitButton>Create connector</SubmitButton>
-        </>
-      )}
-    </ActionForm>
+        <Group>
+          <Button type="submit" loading={pending}>
+            Create connector
+          </Button>
+        </Group>
+      </Stack>
+    </form>
   );
 }

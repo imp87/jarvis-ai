@@ -60,6 +60,21 @@ const createMcpServerSchema = z
   });
 
 /**
+ * Every field is optional and absence means "leave it alone" — except
+ * `secrets: null`, which is how a credential is deliberately removed. The
+ * transport and the name are not editable: both are baked into the tool names
+ * the model has already seen, so changing them is a new registration.
+ */
+const updateMcpServerSchema = z.object({
+  enabled: z.boolean().optional(),
+  description: z.string().max(1000).optional(),
+  url: z.string().url().optional(),
+  command: z.string().max(500).optional(),
+  args: z.array(z.string()).optional(),
+  secrets: z.record(z.string()).nullable().optional(),
+});
+
+/**
  * Postgres reports a duplicate name as 23505. Left unhandled it surfaces as a
  * 500 with a raw constraint name, which reads like the server broke when in
  * fact the caller picked a name that is already taken.
@@ -263,23 +278,46 @@ export function registryRoutes(container: Container): Router {
   );
 
   /**
-   * Enable or disable a server without deleting it — the registration and its
-   * secrets survive, so switching a flaky server off while debugging does not
-   * mean re-entering its credential afterwards.
+   * Update a server in place: enable or disable it, correct its URL or command,
+   * replace its credential.
    *
-   * Enabling connects immediately, mirroring registration: a connect failure is
-   * reported but leaves the row enabled, since the fix is usually on the server
-   * side and flipping the flag back would only hide it.
+   * Editing exists because getting a credential right takes more than one
+   * attempt, and the alternative — delete and re-register — throws away the
+   * whole configuration to change one token.
+   *
+   * Every accepted change reconnects, so the response says whether the edit
+   * actually fixed anything. A connect failure is reported but never rolls the
+   * row back: the stored configuration is what you just asked for, and hiding
+   * it would only make the next attempt guesswork.
    */
   router.patch(
     "/v1/mcp/servers/:id",
     asyncHandler(async (req, res) => {
       const id = z.string().uuid().parse(req.params["id"]);
-      const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
-      const row = await repos.registry.getMcpServer(id);
-      if (!row) throw new NotFoundError("mcp server not found");
+      const patch = updateMcpServerSchema.parse(req.body);
+      const existing = await repos.registry.getMcpServer(id);
+      if (!existing) throw new NotFoundError("mcp server not found");
 
-      await repos.registry.setMcpServerEnabled(id, enabled);
+      if (patch.enabled !== undefined) {
+        await repos.registry.setMcpServerEnabled(id, patch.enabled);
+      }
+
+      const row =
+        (await repos.registry.updateMcpServer(id, {
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.url !== undefined ? { url: patch.url } : {}),
+          ...(patch.command !== undefined ? { command: patch.command } : {}),
+          ...(patch.args !== undefined ? { args: patch.args } : {}),
+          // Omitted leaves the stored credential alone; an explicit null clears it.
+          ...(patch.secrets !== undefined
+            ? {
+                secretsEnc:
+                  patch.secrets === null ? null : encryptSecret(JSON.stringify(patch.secrets), masterKey),
+              }
+            : {}),
+        })) ?? existing;
+
+      const enabled = patch.enabled ?? row.enabled;
       if (!enabled) {
         await mcp.disconnect(row.name);
         return res.json({ id, enabled, connected: false });
@@ -289,7 +327,7 @@ export function registryRoutes(container: Container): Router {
         await mcp.connect(toMcpServerConfig({ ...row, enabled }, masterKey, logger));
         return res.json({ id, enabled, connected: true });
       } catch (err) {
-        logger.error({ server: row.name, err: String(err) }, "MCP connect failed after enabling");
+        logger.error({ server: row.name, err: String(err) }, "MCP connect failed after update");
         return res.json({
           id,
           enabled,

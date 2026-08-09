@@ -6,7 +6,16 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { api } from "@/lib/api";
 import { attempt } from "@/lib/attempt";
-import type { ActionResult } from "@/lib/action-result";
+import { ok, warn, type ActionResult } from "@/lib/action-result";
+import {
+  connectorSchema,
+  endpointSchema,
+  mcpServerSchema,
+  type AuthInput,
+  type ConnectorInput,
+  type EndpointInput,
+  type McpServerInput,
+} from "@/lib/schemas";
 import { SESSION_COOKIE, isCorrectPassword, issueSessionToken } from "@/lib/session";
 
 // --- Session ---------------------------------------------------------------
@@ -15,35 +24,24 @@ import { SESSION_COOKIE, isCorrectPassword, issueSessionToken } from "@/lib/sess
  * Login attempts are counted in memory. This sits behind a loopback port and a
  * reverse proxy, so it is not the primary defence — it exists so a password
  * that turns out to be weaker than intended cannot be ground down in seconds.
- * A restart clears it, which is an acceptable trade for holding no state.
  */
-const attempts = new Map<string, { count: number; until: number }>();
+let attempts = { count: 0, until: 0 };
 const MAX_ATTEMPTS = 10;
 const LOCKOUT_MS = 5 * 60_000;
 
-export async function login(_state: ActionResult, formData: FormData): Promise<ActionResult> {
-  const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/");
-
-  // One bucket: this is a single-operator tool, and keying on a client IP that
-  // the proxy controls would only make the limit easier to sidestep.
-  const bucket = attempts.get("global") ?? { count: 0, until: 0 };
-  if (bucket.until > Date.now()) {
-    const seconds = Math.ceil((bucket.until - Date.now()) / 1000);
-    return { error: `Too many attempts. Try again in ${seconds}s.` };
+export async function login(password: string, next: string): Promise<ActionResult> {
+  if (attempts.until > Date.now()) {
+    const seconds = Math.ceil((attempts.until - Date.now()) / 1000);
+    return { status: "error", message: `Too many attempts. Try again in ${seconds}s.` };
   }
 
   if (!(await isCorrectPassword(password))) {
-    bucket.count += 1;
-    if (bucket.count >= MAX_ATTEMPTS) {
-      attempts.set("global", { count: 0, until: Date.now() + LOCKOUT_MS });
-    } else {
-      attempts.set("global", bucket);
-    }
-    return { error: "Wrong password." };
+    attempts.count += 1;
+    if (attempts.count >= MAX_ATTEMPTS) attempts = { count: 0, until: Date.now() + LOCKOUT_MS };
+    return { status: "error", message: "Wrong password." };
   }
 
-  attempts.delete("global");
+  attempts = { count: 0, until: 0 };
   const { value, maxAge } = await issueSessionToken();
   (await cookies()).set(SESSION_COOKIE, value, {
     httpOnly: true,
@@ -64,23 +62,90 @@ export async function logout(): Promise<void> {
   redirect("/login");
 }
 
-// --- MCP servers -----------------------------------------------------------
+// --- Translating the auth presets -----------------------------------------
 
 /**
- * Secrets are entered as `KEY=value` lines — HTTP headers for an http server,
- * environment variables for a stdio one. A textarea beats a repeating key/value
- * widget here because the values are usually pasted straight from a provider's
- * setup page in exactly this shape.
+ * Turns a chosen method into the HTTP headers an MCP server expects.
+ *
+ * Base64 is computed here rather than in the browser: `btoa` mangles anything
+ * outside Latin-1, and passwords contain umlauts.
  */
-function parseSecrets(raw: string): Record<string, string> | undefined {
+function authToHeaders(auth: AuthInput): Record<string, string> | undefined {
+  switch (auth.mode) {
+    case "bearer":
+      return { Authorization: `Bearer ${auth.token.trim()}` };
+    case "header":
+      return { [auth.headerName.trim()]: auth.token.trim() };
+    case "basic":
+      return {
+        Authorization: `Basic ${Buffer.from(`${auth.username}:${auth.password}`, "utf8").toString("base64")}`,
+      };
+    case "custom":
+      return parseHeaderLines(auth.raw);
+    case "query":
+      // Not reachable from the MCP form, which does not offer it: an MCP
+      // endpoint URL carries its own query string and mixing the two silently
+      // is worse than not offering it.
+      return undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Maps a chosen method onto what the connector registry stores. */
+function authToConnectorFields(auth: AuthInput): {
+  authType: "none" | "api_key_header" | "bearer" | "basic" | "query_param";
+  authParamName?: string;
+  credential?: string;
+} {
+  switch (auth.mode) {
+    case "bearer":
+      return { authType: "bearer", credential: auth.token.trim() };
+    case "header":
+      return {
+        authType: "api_key_header",
+        authParamName: auth.headerName.trim(),
+        credential: auth.token.trim(),
+      };
+    case "query":
+      return {
+        authType: "query_param",
+        authParamName: auth.paramName.trim(),
+        credential: auth.token.trim(),
+      };
+    case "basic":
+      // The registry stores basic credentials as "user:password" and encodes
+      // them at call time — see connectors.ts.
+      return { authType: "basic", credential: `${auth.username}:${auth.password}` };
+    default:
+      return { authType: "none" };
+  }
+}
+
+/** Accepts `Name: value` and `Name=value`, since both get pasted from docs. */
+function parseHeaderLines(raw: string): Record<string, string> | undefined {
   const entries = raw
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
     .map((line) => {
-      const separator = line.indexOf("=");
-      if (separator <= 0) throw new Error(`Not a KEY=value line: "${line.slice(0, 40)}"`);
-      return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] as const;
+      const at = line.search(/[:=]/);
+      if (at <= 0) throw new Error(`Not a "Name: value" line: "${line.slice(0, 40)}"`);
+      return [line.slice(0, at).trim(), line.slice(at + 1).trim()] as const;
+    });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+/** `KEY=value` lines for a stdio server's environment. */
+function parseEnvLines(raw: string): Record<string, string> | undefined {
+  const entries = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .map((line) => {
+      const at = line.indexOf("=");
+      if (at <= 0) throw new Error(`Not a KEY=value line: "${line.slice(0, 40)}"`);
+      return [line.slice(0, at).trim(), line.slice(at + 1).trim()] as const;
     });
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
@@ -92,90 +157,90 @@ function parseArgs(raw: string): string[] {
   );
 }
 
-const mcpFormSchema = z
-  .object({
-    name: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[\w-]+$/, "letters, digits, _ and - only"),
-    description: z.string().max(1000),
-    transport: z.enum(["stdio", "http"]),
-    url: z.string().url().optional(),
-    command: z.string().max(500).optional(),
-    args: z.array(z.string()),
-    secrets: z.record(z.string()).optional(),
-  })
-  .refine((v) => v.transport !== "http" || Boolean(v.url), {
-    message: "a URL is required for the http transport",
-    path: ["url"],
-  })
-  .refine((v) => v.transport !== "stdio" || Boolean(v.command), {
-    message: "a command is required for the stdio transport",
-    path: ["command"],
-  });
+// --- MCP servers -----------------------------------------------------------
 
-export async function createMcpServer(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
+export async function createMcpServer(raw: McpServerInput): Promise<ActionResult> {
   return attempt("Server registered.", async () => {
-    const transport = String(formData.get("transport") ?? "stdio");
-    const input = mcpFormSchema.parse({
-      name: String(formData.get("name") ?? "").trim(),
-      description: String(formData.get("description") ?? "").trim(),
-      transport,
-      url: transport === "http" ? String(formData.get("url") ?? "").trim() || undefined : undefined,
-      command:
-        transport === "stdio"
-          ? String(formData.get("command") ?? "").trim() || undefined
-          : undefined,
-      args: transport === "stdio" ? parseArgs(String(formData.get("args") ?? "")) : [],
-      secrets: parseSecrets(String(formData.get("secrets") ?? "")),
-    });
+    const input = mcpServerSchema.parse(raw);
+    const secrets =
+      input.transport === "http" ? authToHeaders(input.auth) : parseEnvLines(input.env);
 
     const result = await api.post<{ name: string; connected: boolean; connectError?: string }>(
       "/v1/mcp/servers",
-      input,
+      {
+        name: input.name,
+        description: input.description,
+        transport: input.transport,
+        ...(input.transport === "http"
+          ? { url: input.url }
+          : { command: input.command, args: parseArgs(input.args) }),
+        ...(secrets ? { secrets } : {}),
+      },
     );
     revalidatePath("/mcp");
     revalidatePath("/");
 
-    // Registration succeeding while the connection fails is the common case and
-    // the whole reason this UI exists — say so instead of a bare "created".
+    // Registered but unreachable is the common case and must not read as
+    // success — that is the whole point of attaching the server.
     return result.connected
-      ? `${result.name} registered and connected.`
-      : `${result.name} registered, but connecting failed: ${result.connectError ?? "unknown error"}`;
-  }, formData);
+      ? ok(`${result.name} is connected and its tools are available.`)
+      : warn(
+          `${result.name} was saved, but connecting failed: ${result.connectError ?? "unknown error"}`,
+        );
+  });
 }
 
-export async function setMcpServerEnabled(
-  _state: ActionResult,
-  formData: FormData,
+/**
+ * Editing an existing server. The credential is only sent when one was typed —
+ * an untouched password field means "keep what is stored", never "clear it",
+ * because the UI cannot show what is there to begin with.
+ */
+export async function updateMcpServer(
+  id: string,
+  raw: McpServerInput,
+  options: { replaceSecret: boolean },
 ): Promise<ActionResult> {
-  return attempt("Updated.", async () => {
-    const id = z.string().uuid().parse(formData.get("id"));
-    const enabled = formData.get("enabled") === "true";
+  return attempt("Server updated.", async () => {
+    const input = mcpServerSchema.parse(raw);
+    const secrets =
+      input.transport === "http" ? authToHeaders(input.auth) : parseEnvLines(input.env);
+
     const result = await api.patch<{ connected: boolean; connectError?: string }>(
-      `/v1/mcp/servers/${id}`,
+      `/v1/mcp/servers/${z.string().uuid().parse(id)}`,
+      {
+        description: input.description,
+        ...(input.transport === "http"
+          ? { url: input.url }
+          : { command: input.command, args: parseArgs(input.args) }),
+        ...(options.replaceSecret ? { secrets: secrets ?? null } : {}),
+      },
+    );
+    revalidatePath("/mcp");
+    revalidatePath("/");
+    return result.connected
+      ? ok(`${input.name} reconnected — its tools are available.`)
+      : warn(`Saved, but connecting still fails: ${result.connectError ?? "unknown error"}`);
+  });
+}
+
+export async function setMcpServerEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    const result = await api.patch<{ connected: boolean; connectError?: string }>(
+      `/v1/mcp/servers/${z.string().uuid().parse(id)}`,
       { enabled },
     );
     revalidatePath("/mcp");
     revalidatePath("/");
-    if (!enabled) return "Server disabled.";
+    if (!enabled) return ok("Server disabled.");
     return result.connected
-      ? "Server enabled and connected."
-      : `Enabled, but connecting failed: ${result.connectError ?? "unknown error"}`;
+      ? ok("Server enabled and connected.")
+      : warn(`Enabled, but connecting failed: ${result.connectError ?? "unknown error"}`);
   });
 }
 
-export async function deleteMcpServer(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
+export async function deleteMcpServer(id: string): Promise<ActionResult> {
   return attempt("Server removed.", async () => {
-    const id = z.string().uuid().parse(formData.get("id"));
-    await api.delete(`/v1/mcp/servers/${id}`);
+    await api.delete(`/v1/mcp/servers/${z.string().uuid().parse(id)}`);
     revalidatePath("/mcp");
     revalidatePath("/");
   });
@@ -189,132 +254,80 @@ export async function reloadMcpServers(): Promise<ActionResult> {
     revalidatePath("/mcp");
     revalidatePath("/");
     const tools = result.servers.reduce((sum, s) => sum + s.toolCount, 0);
-    return `${result.servers.length} server(s) connected, ${tools} tool(s) available.`;
+    return ok(`${result.servers.length} server(s) connected, ${tools} tool(s) available.`);
   });
 }
 
 // --- Connectors ------------------------------------------------------------
 
-const connectorFormSchema = z
-  .object({
-    name: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[\w -]+$/, "letters, digits, spaces, _ and - only"),
-    description: z.string().min(10, "at least 10 characters — the model matches on this").max(2000),
-    baseUrl: z.string().url(),
-    authType: z.enum(["none", "api_key_header", "bearer", "basic", "query_param"]),
-    authParamName: z.string().max(64).optional(),
-    credential: z.string().min(1).optional(),
-  })
-  .refine((v) => v.authType === "none" || Boolean(v.credential), {
-    message: "a credential is required unless the auth type is 'none'",
-    path: ["credential"],
-  })
-  .refine(
-    (v) => !["api_key_header", "query_param"].includes(v.authType) || Boolean(v.authParamName),
-    { message: "a parameter name is required for this auth type", path: ["authParamName"] },
-  );
-
-export async function createConnector(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
+export async function createConnector(raw: ConnectorInput): Promise<ActionResult> {
   return attempt("Connector created.", async () => {
-    const input = connectorFormSchema.parse({
-      name: String(formData.get("name") ?? "").trim(),
-      description: String(formData.get("description") ?? "").trim(),
-      baseUrl: String(formData.get("baseUrl") ?? "").trim(),
-      authType: String(formData.get("authType") ?? "none"),
-      authParamName: String(formData.get("authParamName") ?? "").trim() || undefined,
-      credential: String(formData.get("credential") ?? "") || undefined,
+    const input = connectorSchema.parse(raw);
+    const result = await api.post<{ name: string }>("/v1/connectors", {
+      name: input.name,
+      description: input.description,
+      baseUrl: input.baseUrl,
+      ...authToConnectorFields(input.auth),
     });
-    const result = await api.post<{ name: string }>("/v1/connectors", input);
     revalidatePath("/connectors");
-    return `${result.name} created. Add at least one endpoint to make it usable.`;
-  }, formData);
-}
-
-export async function setConnectorEnabled(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
-  return attempt("Updated.", async () => {
-    const id = z.string().uuid().parse(formData.get("id"));
-    await api.patch(`/v1/connectors/${id}`, { enabled: formData.get("enabled") === "true" });
-    revalidatePath("/connectors");
-    revalidatePath(`/connectors/${id}`);
+    return ok(`${result.name} created. Add an endpoint to turn it into a tool.`);
   });
 }
 
-export async function deleteConnector(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
-  const id = z.string().uuid().parse(formData.get("id"));
+export async function setConnectorEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    const connectorId = z.string().uuid().parse(id);
+    await api.patch(`/v1/connectors/${connectorId}`, { enabled });
+    revalidatePath("/connectors");
+    revalidatePath(`/connectors/${connectorId}`);
+  });
+}
+
+export async function deleteConnector(id: string): Promise<ActionResult> {
+  const connectorId = z.string().uuid().parse(id);
   const result = await attempt("Connector removed.", async () => {
-    await api.delete(`/v1/connectors/${id}`);
+    await api.delete(`/v1/connectors/${connectorId}`);
     revalidatePath("/connectors");
   });
   // The detail page for a deleted connector would 404 on refresh.
-  if (result.success) redirect("/connectors");
+  if (result.status === "success") redirect("/connectors");
   return result;
 }
 
-const endpointFormSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[\w-]+$/, "letters, digits, _ and - only"),
-  description: z.string().min(10, "at least 10 characters — this is what the model reads").max(1000),
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-  path: z.string().min(1).max(500),
-  inputSchema: z.record(z.unknown()).optional(),
-  sideEffects: z.boolean(),
-});
-
-export async function createEndpoint(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
+export async function createEndpoint(raw: EndpointInput): Promise<ActionResult> {
   return attempt("Endpoint added.", async () => {
-    const connectorId = z.string().uuid().parse(formData.get("connectorId"));
-    const rawSchema = String(formData.get("inputSchema") ?? "").trim();
+    const input = endpointSchema.parse(raw);
 
     let inputSchema: Record<string, unknown> | undefined;
-    if (rawSchema) {
+    if (input.inputSchema.trim()) {
       try {
-        inputSchema = JSON.parse(rawSchema) as Record<string, unknown>;
+        inputSchema = JSON.parse(input.inputSchema) as Record<string, unknown>;
       } catch (err) {
-        throw new Error(`Input schema is not valid JSON: ${(err as Error).message}`);
+        return {
+          status: "error" as const,
+          message: "The input schema is not valid JSON.",
+          fieldErrors: { inputSchema: (err as Error).message },
+        };
       }
     }
 
-    const input = endpointFormSchema.parse({
-      name: String(formData.get("name") ?? "").trim(),
-      description: String(formData.get("description") ?? "").trim(),
-      method: String(formData.get("method") ?? "GET"),
-      path: String(formData.get("path") ?? "").trim(),
-      inputSchema,
-      sideEffects: formData.get("sideEffects") === "on",
+    await api.post(`/v1/connectors/${input.connectorId}/endpoints`, {
+      name: input.name,
+      description: input.description,
+      method: input.method,
+      path: input.path,
+      ...(inputSchema ? { inputSchema } : {}),
+      sideEffects: input.sideEffects,
     });
-
-    await api.post(`/v1/connectors/${connectorId}/endpoints`, input);
-    revalidatePath(`/connectors/${connectorId}`);
+    revalidatePath(`/connectors/${input.connectorId}`);
     revalidatePath("/connectors");
-  }, formData);
+    return ok(`${input.name} added — the agent can call it on the next turn.`);
+  });
 }
 
-export async function deleteEndpoint(
-  _state: ActionResult,
-  formData: FormData,
-): Promise<ActionResult> {
+export async function deleteEndpoint(id: string, connectorId: string): Promise<ActionResult> {
   return attempt("Endpoint removed.", async () => {
-    const id = z.string().uuid().parse(formData.get("id"));
-    const connectorId = String(formData.get("connectorId") ?? "");
-    await api.delete(`/v1/endpoints/${id}`);
+    await api.delete(`/v1/endpoints/${z.string().uuid().parse(id)}`);
     revalidatePath(`/connectors/${connectorId}`);
     revalidatePath("/connectors");
   });

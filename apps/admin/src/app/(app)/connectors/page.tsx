@@ -1,9 +1,7 @@
 import Link from "next/link";
-import { setConnectorEnabled } from "../../actions";
-import { ActionButton } from "@/components/form";
+import { Alert, Anchor, Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
 import { ConnectorForm } from "@/components/connector-form";
 import { ApiError, getConnectors, type Connector } from "@/lib/api";
-import { Badge, Card, Empty, ErrorBox, Mono } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -13,79 +11,83 @@ export default async function ConnectorsPage() {
     connectors = (await getConnectors()).connectors;
   } catch (err) {
     return (
-      <ErrorBox title="Could not reach the orchestrator">
+      <Alert color="red" title="Could not reach the orchestrator">
         {err instanceof ApiError ? err.message : String(err)}
-      </ErrorBox>
+      </Alert>
     );
   }
 
   return (
-    <>
-      <Card
-        title="Add an HTTP connector"
-        subtitle="For plain REST APIs that have no MCP server. Each endpoint you then define becomes one tool."
-      >
-        <ConnectorForm />
+    <Stack gap="xl">
+      <Card withBorder padding="lg">
+        <Stack gap="md">
+          <div>
+            <Title order={5}>Add an HTTP connector</Title>
+            <Text size="sm" c="dimmed">
+              For plain REST APIs with no MCP server. Each endpoint you define becomes one tool.
+            </Text>
+          </div>
+          <ConnectorForm />
+        </Stack>
       </Card>
 
-      <Card title={`Connectors (${connectors.length})`}>
-        {connectors.length === 0 ? (
-          <Empty>Nothing registered yet.</Empty>
-        ) : (
-          <ul className="divide-y divide-zinc-800">
-            {connectors.map((connector) => (
-              <li key={connector.id} className="py-4 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/connectors/${connector.id}`}
-                        className="font-medium text-zinc-100 underline-offset-4 hover:underline"
-                      >
-                        {connector.name}
-                      </Link>
-                      {!connector.enabled && <Badge>disabled</Badge>}
-                      <Badge tone={connector.endpoints.length === 0 ? "warn" : "good"}>
-                        {connector.endpoints.length} endpoint
-                        {connector.endpoints.length === 1 ? "" : "s"}
+      <Card withBorder padding="lg">
+        <Stack gap="sm">
+          <Text fw={500}>Connectors ({connectors.length})</Text>
+          {connectors.length === 0 ? (
+            <Text c="dimmed" size="sm" ta="center" py="lg">
+              Nothing registered yet.
+            </Text>
+          ) : (
+            connectors.map((connector) => (
+              <Group
+                key={connector.id}
+                justify="space-between"
+                wrap="nowrap"
+                align="flex-start"
+                p="sm"
+                style={{
+                  border: "1px solid var(--mantine-color-default-border)",
+                  borderRadius: "var(--mantine-radius-md)",
+                }}
+              >
+                <Stack gap={4} style={{ minWidth: 0 }}>
+                  <Group gap="xs">
+                    <Anchor component={Link} href={`/connectors/${connector.id}`} fw={500}>
+                      {connector.name}
+                    </Anchor>
+                    {!connector.enabled && (
+                      <Badge variant="default" size="sm">
+                        disabled
                       </Badge>
-                      <Badge>{connector.authType}</Badge>
-                      {connector.hasCredential && <Badge>credential stored</Badge>}
-                    </div>
-                    <p className="mt-1 text-sm text-zinc-400">{connector.description}</p>
-                    <p className="mt-1 truncate">
-                      <Mono>{connector.baseUrl}</Mono>
-                    </p>
-                    {connector.endpoints.length === 0 && (
-                      <p className="mt-2 text-sm text-amber-400/80">
-                        No endpoints — this connector contributes no tools yet.{" "}
-                        <Link href={`/connectors/${connector.id}`} className="underline">
-                          Add one
-                        </Link>
-                        .
-                      </p>
                     )}
-                  </div>
-                  <div className="flex shrink-0 items-start gap-2">
-                    <ActionButton
-                      action={setConnectorEnabled}
-                      fields={{ id: connector.id, enabled: String(!connector.enabled) }}
+                    <Badge
+                      color={connector.endpoints.length === 0 ? "yellow" : "teal"}
+                      variant="light"
+                      size="sm"
                     >
-                      {connector.enabled ? "Disable" : "Enable"}
-                    </ActionButton>
-                    <Link
-                      href={`/connectors/${connector.id}`}
-                      className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
-                    >
-                      Endpoints
-                    </Link>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+                      {connector.endpoints.length} endpoint
+                      {connector.endpoints.length === 1 ? "" : "s"}
+                    </Badge>
+                    <Badge variant="default" size="sm">
+                      {connector.authType}
+                    </Badge>
+                  </Group>
+                  <Text size="sm" c="dimmed">
+                    {connector.description}
+                  </Text>
+                  <Text className="mono" c="dimmed">
+                    {connector.baseUrl}
+                  </Text>
+                </Stack>
+                <Button component={Link} href={`/connectors/${connector.id}`} size="xs" variant="default">
+                  Endpoints
+                </Button>
+              </Group>
+            ))
+          )}
+        </Stack>
       </Card>
-    </>
+    </Stack>
   );
 }

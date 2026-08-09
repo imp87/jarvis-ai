@@ -1,7 +1,7 @@
 import "server-only";
 import { ZodError } from "zod";
 import { ApiError } from "./api";
-import type { ActionResult } from "./action-result";
+import { ok, type ActionResult } from "./action-result";
 
 /**
  * Turns a thrown error into something the operator can act on.
@@ -9,46 +9,42 @@ import type { ActionResult } from "./action-result";
  * An unhandled throw in a server action reaches production as "an error
  * occurred in the Server Components render" with no detail — precisely useless
  * when the actual message is "command not found: npx".
+ *
+ * The handler may return an `ActionResult` of its own when the outcome is not a
+ * plain success; anything else is treated as done.
  */
 export async function attempt(
   successMessage: string,
-  fn: () => Promise<string | void>,
-  /** Pass the submitted form to keep its values on screen when this fails. */
-  echo?: FormData,
+  fn: () => Promise<ActionResult | void>,
 ): Promise<ActionResult> {
   try {
-    const detail = await fn();
-    return { success: detail || successMessage };
+    return (await fn()) ?? ok(successMessage);
   } catch (err) {
-    const values = echoValues(echo);
-    const base = values ? { values } : {};
-
     if (err instanceof ZodError) {
+      // Field errors go back to the exact input that caused them, so the form
+      // marks the offending field instead of showing a banner about it.
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of err.issues) {
+        const path = issue.path.join(".");
+        if (path && !fieldErrors[path]) fieldErrors[path] = issue.message;
+      }
       return {
-        ...base,
-        error: "Check the highlighted fields.",
-        details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+        status: "error",
+        message: "Some fields need fixing.",
+        ...(Object.keys(fieldErrors).length > 0 ? { fieldErrors } : {}),
       };
     }
     if (err instanceof ApiError) {
-      return { ...base, error: err.message, ...(err.details ? { details: err.details } : {}) };
+      const fieldErrors: Record<string, string> = {};
+      for (const detail of err.details ?? []) {
+        if (detail.path && !fieldErrors[detail.path]) fieldErrors[detail.path] = detail.message;
+      }
+      return {
+        status: "error",
+        message: err.message,
+        ...(Object.keys(fieldErrors).length > 0 ? { fieldErrors } : {}),
+      };
     }
-    return { ...base, error: err instanceof Error ? err.message : String(err) };
+    return { status: "error", message: err instanceof Error ? err.message : String(err) };
   }
-}
-
-/**
- * Credentials are never echoed. Re-rendering them would write a plaintext API
- * key into the page source for the sake of saving one paste — the rest of the
- * form is worth restoring, a secret is not.
- */
-const SECRET_FIELDS = new Set(["credential", "secrets", "password"]);
-
-function echoValues(formData: FormData | undefined): Record<string, string> | undefined {
-  if (!formData) return undefined;
-  const values: Record<string, string> = {};
-  for (const [key, value] of formData.entries()) {
-    if (typeof value === "string" && !SECRET_FIELDS.has(key)) values[key] = value;
-  }
-  return Object.keys(values).length > 0 ? values : undefined;
 }

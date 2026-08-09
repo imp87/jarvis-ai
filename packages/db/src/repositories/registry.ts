@@ -237,6 +237,47 @@ export class RegistryRepository {
     await this.pool.query(`UPDATE mcp_servers SET enabled = $2 WHERE id = $1`, [id, enabled]);
   }
 
+  /**
+   * Partial update. `undefined` leaves a column alone; `secretsEnc: null`
+   * clears the stored credential, which is why it cannot simply be coalesced —
+   * "not supplied" and "remove it" are different intents and a form that
+   * re-submits without touching the credential must not wipe it.
+   */
+  async updateMcpServer(
+    id: string,
+    patch: {
+      description?: string;
+      url?: string | null;
+      command?: string | null;
+      args?: string[];
+      secretsEnc?: string | null;
+    },
+  ): Promise<McpServerRow | null> {
+    const { rows } = await this.pool.query(
+      `UPDATE mcp_servers SET
+         description = COALESCE($2, description),
+         url         = CASE WHEN $3::boolean THEN $4 ELSE url END,
+         command     = CASE WHEN $5::boolean THEN $6 ELSE command END,
+         args        = COALESCE($7::jsonb, args),
+         secrets_enc = CASE WHEN $8::boolean THEN $9 ELSE secrets_enc END
+       WHERE id = $1
+       RETURNING id, name, description, transport, url, command, args, secrets_enc, enabled`,
+      [
+        id,
+        patch.description ?? null,
+        patch.url !== undefined,
+        patch.url ?? null,
+        patch.command !== undefined,
+        patch.command ?? null,
+        patch.args ? JSON.stringify(patch.args) : null,
+        patch.secretsEnc !== undefined,
+        patch.secretsEnc ?? null,
+      ],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapMcpServer(row) : null;
+  }
+
   async deleteMcpServer(id: string): Promise<boolean> {
     const result = await this.pool.query(`DELETE FROM mcp_servers WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;

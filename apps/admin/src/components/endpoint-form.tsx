@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import { Button, Checkbox, Group, JsonInput, Select, Stack, Textarea, TextInput } from "@mantine/core";
+import { useForm } from "@mantine/form";
 import { createEndpoint } from "@/app/actions";
-import { ActionForm, SubmitButton } from "@/components/form";
-import { Field, Input, Select, Textarea } from "@/components/ui";
+import { notifyResult, zodValidate } from "@/lib/form";
+import { HTTP_METHODS, emptyEndpoint, endpointSchema, type EndpointInput } from "@/lib/schemas";
 
 const EXAMPLE_SCHEMA = `{
   "type": "object",
@@ -13,82 +16,83 @@ const EXAMPLE_SCHEMA = `{
 }`;
 
 export function EndpointForm({ connectorId }: { connectorId: string }) {
+  const [pending, setPending] = useState(false);
+  const form = useForm<EndpointInput>({
+    initialValues: emptyEndpoint(connectorId),
+    validate: zodValidate(endpointSchema),
+    validateInputOnBlur: true,
+  });
+
+  async function submit(values: EndpointInput) {
+    setPending(true);
+    try {
+      const result = await createEndpoint(values);
+      notifyResult(result);
+      if (result.fieldErrors) form.setErrors(result.fieldErrors);
+      if (result.status === "success") form.reset();
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <ActionForm action={createEndpoint} className="space-y-4">
-      {(state) => (
-        <>
-          <input type="hidden" name="connectorId" value={connectorId} />
+    <form onSubmit={form.onSubmit(submit)}>
+      <Stack gap="md">
+        <Group grow align="flex-start">
+          <TextInput
+            label="Name"
+            placeholder="current_weather"
+            description="Becomes the tool name"
+            {...form.getInputProps("name")}
+          />
+          <Select
+            label="Method"
+            data={[...HTTP_METHODS]}
+            allowDeselect={false}
+            {...form.getInputProps("method")}
+          />
+          <TextInput
+            label="Path"
+            placeholder="/weather/current"
+            description="Appended to the connector's base URL"
+            {...form.getInputProps("path")}
+          />
+        </Group>
 
-          <div className="grid gap-4 sm:grid-cols-[1fr_auto_2fr]">
-            <Field label="Name" hint="Becomes the tool name">
-              <Input
-                name="name"
-                placeholder="current_weather"
-                defaultValue={state.values?.["name"] ?? ""}
-                required
-              />
-            </Field>
-            <Field label="Method">
-              <Select name="method" defaultValue={state.values?.["method"] ?? "GET"}>
-                {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Path" hint="Appended to the connector's base URL">
-              <Input
-                name="path"
-                placeholder="/weather/current"
-                defaultValue={state.values?.["path"] ?? ""}
-                required
-              />
-            </Field>
-          </div>
+        <Textarea
+          label="What it does"
+          description="The model reads this to decide when to call it."
+          placeholder="Returns the current temperature, conditions and wind for one city."
+          autosize
+          minRows={2}
+          {...form.getInputProps("description")}
+        />
 
-          <Field label="What it does" hint="The model reads this to decide when to call it.">
-            <Textarea
-              name="description"
-              rows={2}
-              placeholder="Returns the current temperature, conditions and wind for one city."
-              defaultValue={state.values?.["description"] ?? ""}
-              required
-            />
-          </Field>
+        {/* Validates and formats in place, so a missing brace is caught here
+            rather than coming back as a server error after a round trip. */}
+        <JsonInput
+          label="Input schema"
+          description="JSON Schema for the arguments. Leave empty for an endpoint that takes none."
+          placeholder={EXAMPLE_SCHEMA}
+          validationError="Not valid JSON"
+          formatOnBlur
+          autosize
+          minRows={6}
+          {...form.getInputProps("inputSchema")}
+        />
 
-          <Field
-            label="Input schema (optional)"
-            hint="JSON Schema for the arguments. Leave empty for an endpoint that takes none."
-          >
-            <Textarea
-              name="inputSchema"
-              rows={6}
-              placeholder={EXAMPLE_SCHEMA}
-              defaultValue={state.values?.["inputSchema"] ?? ""}
-              spellCheck={false}
-            />
-          </Field>
+        <Checkbox
+          label="Has side effects"
+          description="Tick for anything that writes, sends or costs money. Read-only endpoints are cheaper for the agent to try."
+          {...form.getInputProps("sideEffects", { type: "checkbox" })}
+        />
 
-          <label className="flex items-start gap-2.5">
-            <input
-              type="checkbox"
-              name="sideEffects"
-              defaultChecked={state.values?.["sideEffects"] === "on"}
-              className="mt-0.5 size-4 rounded border-zinc-700 bg-zinc-950 accent-teal-600"
-            />
-            <span className="text-sm text-zinc-300">
-              Has side effects
-              <span className="block text-xs text-zinc-500">
-                Tick for anything that writes, sends or costs money. Read-only endpoints are cheaper
-                for the agent to try.
-              </span>
-            </span>
-          </label>
-
-          <SubmitButton>Add endpoint</SubmitButton>
-        </>
-      )}
-    </ActionForm>
+        <Group>
+          <Button type="submit" loading={pending}>
+            Add endpoint
+          </Button>
+        </Group>
+      </Stack>
+    </form>
   );
 }
