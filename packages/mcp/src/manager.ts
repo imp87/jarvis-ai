@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { ExecutableTool, Logger, ToolResult } from "@jarvis/shared";
+import type { ExecutableTool, Logger, ToolContext, ToolResult } from "@jarvis/shared";
 
 /**
  * Generic MCP client layer (component 3). Any MCP server — Gmail, Calendar,
@@ -32,6 +32,20 @@ export interface McpServerConfig {
 interface Connection {
   config: McpServerConfig;
   client: Client;
+  tools: ExecutableTool[];
+}
+
+export interface EmbeddedMcpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  sideEffects?: boolean;
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
+}
+
+interface EmbeddedServer {
+  name: string;
+  description?: string;
   tools: ExecutableTool[];
 }
 
@@ -85,6 +99,8 @@ function describeTool(
 
 export class McpManager {
   private readonly connections = new Map<string, Connection>();
+  /** In-process services use the same tool contract without a needless stdio hop. */
+  private readonly embedded = new Map<string, EmbeddedServer>();
   /**
    * Why a server is not connected, kept until it connects or is removed.
    *
@@ -96,6 +112,32 @@ export class McpManager {
   private readonly failures = new Map<string, { error: string; at: number }>();
 
   constructor(private readonly logger: Logger) {}
+
+  /**
+   * Registers a trusted, built-in MCP service. This is intentionally separate
+   * from the database registry: its lifecycle is the orchestrator's lifecycle,
+   * and its credentials never pass through a spawned child process.
+   */
+  registerEmbeddedServer(input: {
+    name: string;
+    description?: string;
+    tools: EmbeddedMcpTool[];
+  }): void {
+    if (this.connections.has(input.name) || this.embedded.has(input.name)) {
+      throw new Error(`MCP server "${input.name}" is already registered`);
+    }
+    const config: McpServerConfig = { name: input.name, description: input.description, transport: "stdio" };
+    const tools: ExecutableTool[] = input.tools.map((tool) => ({
+      name: toolName(input.name, tool.name),
+      description: describeTool(config, tool.name, tool.description),
+      inputSchema: tool.inputSchema,
+      source: "mcp",
+      sideEffects: tool.sideEffects ?? false,
+      execute: (args, ctx) => tool.execute(args, ctx),
+    }));
+    this.embedded.set(input.name, { name: input.name, description: input.description, tools });
+    this.logger.info({ server: input.name, transport: "embedded", toolCount: tools.length }, "MCP server connected");
+  }
 
   /**
    * Connects every configured server. One unreachable server must not stop the
@@ -219,20 +261,32 @@ export class McpManager {
   }
 
   listTools(): ExecutableTool[] {
-    return [...this.connections.values()].flatMap((c) => c.tools);
+    return [
+      ...[...this.embedded.values()].flatMap((server) => server.tools),
+      ...[...this.connections.values()].flatMap((connection) => connection.tools),
+    ];
   }
 
   listServers(): Array<{ name: string; transport: string; toolCount: number }> {
-    return [...this.connections.values()].map((c) => ({
-      name: c.config.name,
-      transport: c.config.transport,
-      toolCount: c.tools.length,
-    }));
+    return [
+      ...[...this.embedded.values()].map((server) => ({
+        name: server.name,
+        transport: "embedded",
+        toolCount: server.tools.length,
+      })),
+      ...[...this.connections.values()].map((connection) => ({
+        name: connection.config.name,
+        transport: connection.config.transport,
+        toolCount: connection.tools.length,
+      })),
+    ];
   }
 
   /** The tool names a connected server contributes — what the UI lists per server. */
   toolNamesFor(name: string): string[] {
-    return this.connections.get(name)?.tools.map((t) => t.name) ?? [];
+    return this.embedded.get(name)?.tools.map((tool) => tool.name)
+      ?? this.connections.get(name)?.tools.map((tool) => tool.name)
+      ?? [];
   }
 
   /** Why this server is not connected, if it failed rather than being absent. */

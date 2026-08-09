@@ -11,12 +11,14 @@ import {
   connectorSchema,
   endpointSchema,
   mcpServerSchema,
+  imapAccountSchema,
   taskSchema,
   type TaskInput,
   type AuthInput,
   type ConnectorInput,
   type EndpointInput,
   type McpServerInput,
+  type ImapAccountInput,
 } from "@/lib/schemas";
 import { SESSION_COOKIE, isCorrectPassword, issueSessionToken } from "@/lib/session";
 
@@ -257,6 +259,51 @@ export async function reloadMcpServers(): Promise<ActionResult> {
     revalidatePath("/");
     const tools = result.servers.reduce((sum, s) => sum + s.toolCount, 0);
     return ok(`${result.servers.length} server(s) connected, ${tools} tool(s) available.`);
+  });
+}
+
+// --- Embedded IMAP accounts ------------------------------------------------
+
+export async function createImapAccount(raw: ImapAccountInput): Promise<ActionResult> {
+  return attempt("IMAP account added.", async () => {
+    const input = imapAccountSchema.parse(raw);
+    if (!input.password.trim()) throw new Error("The IMAP password or app password is required.");
+    await api.post("/v1/imap/accounts", input);
+    revalidatePath("/imap");
+    revalidatePath("/");
+    return ok("Account saved. Jarvis is connecting via IMAP IDLE now.");
+  });
+}
+
+export async function updateImapAccount(id: string, raw: ImapAccountInput): Promise<ActionResult> {
+  return attempt("IMAP account updated.", async () => {
+    const input = imapAccountSchema.parse(raw);
+    await api.patch(`/v1/imap/accounts/${z.string().uuid().parse(id)}`, {
+      name: input.name, host: input.host, port: input.port, secure: input.secure,
+      username: input.username, mailbox: input.mailbox, notifyChannel: input.notifyChannel,
+      maxBodyChars: input.maxBodyChars,
+      ...(input.password.trim() ? { password: input.password } : {}),
+    });
+    revalidatePath("/imap");
+    revalidatePath("/");
+    return ok("Saved. The IMAP connection is being restarted.");
+  });
+}
+
+export async function setImapAccountEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch(`/v1/imap/accounts/${z.string().uuid().parse(id)}`, { enabled });
+    revalidatePath("/imap");
+    revalidatePath("/");
+    return ok(enabled ? "Account enabled and connecting." : "Account disabled.");
+  });
+}
+
+export async function deleteImapAccount(id: string): Promise<ActionResult> {
+  return attempt("IMAP account removed.", async () => {
+    await api.delete(`/v1/imap/accounts/${z.string().uuid().parse(id)}`);
+    revalidatePath("/imap");
+    revalidatePath("/");
   });
 }
 

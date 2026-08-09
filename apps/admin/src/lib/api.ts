@@ -102,6 +102,23 @@ export interface McpServer {
   lastErrorAt: string | null;
 }
 
+export interface ImapAccount {
+  id: string;
+  userId: string;
+  name: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  mailbox: string;
+  notifyChannel: "telegram" | "discord";
+  maxBodyChars: number;
+  enabled: boolean;
+  hasPassword: boolean;
+  state: "stopped" | "connecting" | "connected" | "error";
+  lastError: string | null;
+}
+
 export interface ConnectorEndpoint {
   id: string;
   name: string;
@@ -219,3 +236,4 @@ export const getPolicy = () =>
 export const getUsers = () => api.get<{ users: AdminUser[] }>("/v1/users");
 export const getConnectors = () => api.get<{ connectors: Connector[] }>("/v1/connectors");
 export const getStatus = () => api.get<Status>("/v1/status");
+export const getImapAccounts = () => api.get<{ accounts: ImapAccount[] }>("/v1/imap/accounts");

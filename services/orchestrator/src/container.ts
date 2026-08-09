@@ -1,6 +1,7 @@
 import {
   CallRepository,
   ConversationRepository,
+  EmailRepository,
   IdentityRepository,
   MemoryRepository,
   RegistryRepository,
@@ -24,6 +25,8 @@ import { NotificationService } from "./services/notify.js";
 import { TaskService } from "./services/tasks.js";
 import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
+import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
+import { ImapService } from "./services/imap.js";
 
 export interface Container {
   config: AppConfig;
@@ -38,6 +41,7 @@ export interface Container {
     calls: CallRepository;
     settings: SettingsRepository;
     tasks: TaskRepository;
+    emails: EmailRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -48,6 +52,7 @@ export interface Container {
   notifications: NotificationService;
   taskService: TaskService;
   taskRunner: TaskRunner;
+  imap: ImapService;
   agent: AgentLoop;
   shutdown(): Promise<void>;
 }
@@ -66,6 +71,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     calls: new CallRepository(pool),
     settings: new SettingsRepository(pool),
     tasks: new TaskRepository(pool),
+    emails: new EmailRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -111,6 +117,13 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
 
   const mcp = new McpManager(logger);
   await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger);
+  // IMAP accounts are created in the admin UI. The MCP tools are available
+  // even before the first account exists, so adding an account needs no restart.
+  mcp.registerEmbeddedServer({
+    name: "imap",
+    description: "Your locally mirrored IMAP mail. Read-only; it never sends or changes mail.",
+    tools: buildEmbeddedImapTools(repos.emails),
+  });
 
   const notifications = new NotificationService(
     repos.identities,
@@ -151,6 +164,14 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     logger,
     { pollIntervalMs: env.TASK_POLL_INTERVAL_MS },
   );
+  const imap = new ImapService({
+    emails: repos.emails,
+    conversations: repos.conversations,
+    agent,
+    notifications,
+    logger,
+    masterKey,
+  });
 
   return {
     config,
@@ -167,9 +188,11 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     notifications,
     taskService,
     taskRunner,
+    imap,
     agent,
     async shutdown() {
       await taskRunner.stop();
+      await imap.stop();
       await mcp.disconnectAll();
       await pool.end();
     },

@@ -102,6 +102,19 @@ export class IdentityRepository {
     return rows.map((r) => ({ id: r.id, displayName: r.display_name, isOwner: r.is_owner }));
   }
 
+  /** A personal installation has one owner; IMAP events are always delivered to them. */
+  async findOwner(): Promise<UserRow | null> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      display_name: string;
+      is_owner: boolean;
+    }>(
+      `SELECT id, display_name, is_owner FROM users WHERE is_owner ORDER BY created_at LIMIT 1`,
+    );
+    const row = rows[0];
+    return row ? { id: row.id, displayName: row.display_name, isOwner: row.is_owner } : null;
+  }
+
   async listIdentities(): Promise<
     Array<{ channel: string; channelUserId: string; enabled: boolean; userId: string }>
   > {

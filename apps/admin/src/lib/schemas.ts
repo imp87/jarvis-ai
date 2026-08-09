@@ -138,6 +138,30 @@ export const emptyMcpServer: McpServerInput = {
   auth: emptyAuth,
 };
 
+// --- Embedded IMAP accounts ------------------------------------------------
+
+export const imapAccountSchema = z.object({
+  userId: z.string().uuid("choose a user"),
+  name: z.string().trim().min(1, "required").max(80).regex(/^[\w .-]+$/, "letters, digits, spaces, . _ and - only"),
+  host: z.string().trim().min(1, "required").max(255),
+  port: z.coerce.number().int().min(1).max(65_535).default(993),
+  secure: z.boolean().default(true),
+  username: z.string().trim().min(1, "required").max(500),
+  password: z.string().default(""),
+  mailbox: z.string().trim().min(1, "required").max(500).default("INBOX"),
+  notifyChannel: z.enum(["telegram", "discord"]).default("telegram"),
+  maxBodyChars: z.coerce.number().int().min(500).max(100_000).default(12_000),
+});
+
+export type ImapAccountInput = z.infer<typeof imapAccountSchema>;
+
+export function emptyImapAccount(userId = ""): ImapAccountInput {
+  return {
+    userId, name: "", host: "", port: 993, secure: true, username: "", password: "", mailbox: "INBOX",
+    notifyChannel: "telegram", maxBodyChars: 12_000,
+  };
+}
+
 // --- Connectors ------------------------------------------------------------
 
 export const connectorSchema = z.object({

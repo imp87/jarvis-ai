@@ -9,6 +9,7 @@ import { logout } from "@/app/actions";
 const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/mcp", label: "MCP servers" },
+  { href: "/imap", label: "Mail" },
   { href: "/connectors", label: "Connectors" },
   { href: "/tasks", label: "Tasks" },
   { href: "/users", label: "Users" },

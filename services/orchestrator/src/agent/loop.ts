@@ -20,6 +20,8 @@ export interface AgentRunInput {
   text: string;
   /** Routing profile; falls back to the router's default. */
   profile?: string | undefined;
+  /** Untrusted event payloads may be analysed but must not drive external actions. */
+  allowSideEffects?: boolean | undefined;
 }
 
 export interface AgentRunResult {
@@ -119,7 +121,9 @@ export class AgentLoop {
     });
 
     // Tools a channel cannot support are never offered — see `ExecutableTool.channels`.
-    const available: ExecutableTool[] = await this.tools.list(channel);
+    const available: ExecutableTool[] = (await this.tools.list(channel)).filter(
+      (tool) => input.allowSideEffects !== false || !tool.sideEffects,
+    );
     const toolDefinitions = available.map((tool) => ({
       name: tool.name,
       description: tool.description,

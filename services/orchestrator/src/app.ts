@@ -10,6 +10,7 @@ import { messageRoutes } from "./routes/messages.js";
 import { registryRoutes } from "./routes/registry.js";
 import { adminRoutes } from "./routes/admin.js";
 import { taskRoutes } from "./routes/tasks.js";
+import { imapRoutes } from "./routes/imap.js";
 
 export function createApp(container: Container): Express {
   const app = express();
@@ -43,6 +44,7 @@ export function createApp(container: Container): Express {
   authed.use(registryRoutes(container));
   authed.use(adminRoutes(container));
   authed.use(taskRoutes(container));
+  authed.use(imapRoutes(container));
   app.use(authed);
 
   app.use((req, _res, next) => {
