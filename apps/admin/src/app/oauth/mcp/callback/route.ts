@@ -9,7 +9,18 @@ import { api } from "@/lib/api";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const state = searchParams.get("state");
-  const result = new URL("/mcp", request.url);
+  // `request.url` is the Docker listener (0.0.0.0:3000) behind Nginx, not
+  // necessarily the public hostname. Reuse the persisted public OAuth base so
+  // the browser is always returned to the actual admin domain.
+  let result: URL;
+  try {
+    const settings = await api.get<{ callbackBaseUrl: string }>("/v1/mcp/oauth/settings");
+    result = new URL("/mcp", settings.callbackBaseUrl);
+  } catch {
+    // The callback will report the actual orchestrator failure below; this is
+    // merely the best possible return location if the settings lookup is down.
+    result = new URL("/mcp", request.url);
+  }
   if (!state) {
     result.searchParams.set("oauth", "error");
     result.searchParams.set("message", "OAuth callback had no state value.");

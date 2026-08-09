@@ -74,6 +74,15 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
 
   sections.push(
     [
+      "# Stripe MCP",
+      "- When Stripe tools are available, use a direct read tool such as mcp_stripe__list_subscriptions for current subscriptions. Do not use stripe_api_search to retrieve live Stripe data: it only discovers API operations.",
+      "- Only use stripe_api_search when no direct tool exists. Then call stripe_api_details for the chosen operation before a Stripe API read. Preserve the exact account or organisation context returned by the account-selection tool; never guess or substitute it.",
+      "- Never use a Stripe write, refund, cancellation, or update tool without the owner's explicit approval in the current conversation.",
+    ].join("\n"),
+  );
+
+  sections.push(
+    [
       "# Acting on their behalf",
       "- Anything that spends money, sends a message to a third party, or changes external " +
         "state is a real action with real consequences. Take it when it is clearly what was " +
