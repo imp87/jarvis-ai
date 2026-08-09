@@ -175,7 +175,45 @@ export interface AdminUser {
   settings: ChannelSettings[];
 }
 
+export interface Task {
+  id: string;
+  userId: string;
+  title: string;
+  kind: "agent" | "notify";
+  prompt: string;
+  channel: string;
+  profile: string | null;
+  scheduleKind: "interval" | "cron" | "once";
+  intervalSeconds: number | null;
+  cron: string | null;
+  timezone: string;
+  scheduleDescription: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  enabled: boolean;
+  createdBy: "user" | "agent";
+  runCount: number;
+  failureCount: number;
+  lastStatus: string | null;
+  lastError: string | null;
+}
+
+export interface TaskRun {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "ok" | "failed";
+  summary: string | null;
+  error: string | null;
+  steps: number | null;
+  toolCalls: string[];
+  durationMs: number | null;
+}
+
 export const getMcpServers = () => api.get<{ servers: McpServer[] }>("/v1/mcp/servers");
+export const getTasks = () => api.get<{ tasks: Task[] }>("/v1/tasks");
+export const getTaskRuns = (id: string) =>
+  api.get<{ runs: TaskRun[] }>(`/v1/tasks/${id}/runs?limit=20`);
 export const getPolicy = () =>
   api.get<{ policy: ResolvedPolicy; environmentDefaults: PolicyDefaults }>("/v1/settings/policy");
 export const getUsers = () => api.get<{ users: AdminUser[] }>("/v1/users");

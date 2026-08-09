@@ -44,6 +44,31 @@ Backend is done and exercised over HTTP; this is the front end.
   phase 2 stores in the database
 - Log views: conversations, tool invocations, call log
 
+## Phase 3.5 — Scheduled tasks ✅ done
+
+Work that happens without being asked: "check my mail every 15 minutes, message
+me if something needs an answer today, call me if it is genuinely urgent."
+
+- `tasks` + `task_runs`, a poller in the orchestrator that claims due work with
+  `FOR UPDATE SKIP LOCKED` — two orchestrators must not both run the task that
+  phones you.
+- Two kinds, and the runner decides between them: an `agent` task runs the full
+  loop with tools; a `notify` task delivers fixed text and never touches the
+  model. A daily reminder should not cost an LLM request.
+- Schedules are intervals or cron. Cron is parsed in the task's own timezone and
+  validated at write time — an expression that only fails when first evaluated
+  leaves a task enabled, unscheduled and silent.
+- One conversation per task, reused across runs, bounded by `MAX_HISTORY_CHARS`.
+  Without it the five-minute mail check has no idea it already reported the same
+  message five minutes ago.
+- The agent schedules its own work through `task_create` / `task_list` /
+  `task_cancel`, under a floor of five minutes and a cap of 20 open tasks. A
+  model that schedules itself every minute has built a spend loop nobody
+  approved, and self-scheduled tasks are labelled as such in the UI.
+- **Proactive delivery now exists** (`send_message`, and `POST /v1/outbound` on
+  the Telegram adapter). Until this, every path was a reply — the agent could
+  only phone you or stay silent, with nothing in between.
+
 ## Phase 4 — E-mail monitoring
 
 - Gmail via API (OAuth) or an existing Gmail MCP server — worth checking the

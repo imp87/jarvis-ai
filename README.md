@@ -47,10 +47,10 @@ Set `ADMIN_PASSWORD` in `.env` (at least 12 characters), then:
 pnpm admin:dev        # http://localhost:3800
 ```
 
-Attaching an MCP server, adding an HTTP connector and its endpoints, editing
-quiet hours and the call budget, managing users and their per-channel reply
-settings, and seeing which tools the agent currently has all happen here
-instead of by curl. The
+Attaching an MCP server, adding an HTTP connector and its endpoints, scheduling
+recurring tasks, editing quiet hours and the call budget, managing users and
+their per-channel reply settings, and seeing which tools the agent currently
+has all happen here instead of by curl. The
 orchestrator's `SERVICE_TOKEN` stays server-side — every call goes through the
 Next.js server, so a browser session can never be turned into direct API access.
 When a server fails to connect, the reason is shown on the server's row rather

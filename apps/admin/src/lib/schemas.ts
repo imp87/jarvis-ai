@@ -165,6 +165,63 @@ export const emptyConnector: ConnectorInput = {
   auth: emptyAuth,
 };
 
+// --- Scheduled tasks -------------------------------------------------------
+
+/** Matches the orchestrator's floor: anything faster is a busy loop. */
+export const MIN_INTERVAL_SECONDS = 60;
+
+export const taskSchema = z
+  .object({
+    userId: z.string().uuid("choose a user"),
+    title: z.string().trim().min(1, "required").max(200),
+    kind: z.enum(["agent", "notify"]),
+    /** agent: the standing order. notify: the literal message to deliver. */
+    prompt: z.string().trim().min(1, "required").max(8000),
+    channel: z.string().default("telegram"),
+    scheduleKind: z.enum(["interval", "cron", "once"]),
+    intervalSeconds: z.coerce.number().int().min(MIN_INTERVAL_SECONDS).nullable().default(300),
+    cron: z.string().trim().default(""),
+    timezone: z.string().default("Europe/Berlin"),
+    /** datetime-local value for a one-off. */
+    runAt: z.string().default(""),
+  })
+  .superRefine((task, ctx) => {
+    if (task.scheduleKind === "cron" && task.cron.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cron"],
+        message: "a cron expression is required, e.g. 0 8 * * 1-5",
+      });
+    }
+    if (task.scheduleKind === "once" && task.runAt.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["runAt"], message: "pick a date and time" });
+    }
+    if (task.scheduleKind === "interval" && (task.intervalSeconds ?? 0) < MIN_INTERVAL_SECONDS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["intervalSeconds"],
+        message: `at least ${MIN_INTERVAL_SECONDS} seconds`,
+      });
+    }
+  });
+
+export type TaskInput = z.infer<typeof taskSchema>;
+
+export function emptyTask(userId: string): TaskInput {
+  return {
+    userId,
+    title: "",
+    kind: "agent",
+    prompt: "",
+    channel: "telegram",
+    scheduleKind: "interval",
+    intervalSeconds: 300,
+    cron: "",
+    timezone: "Europe/Berlin",
+    runAt: "",
+  };
+}
+
 // --- Endpoints -------------------------------------------------------------
 
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;

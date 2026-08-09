@@ -24,6 +24,9 @@ const server = app.listen(config.env.ORCHESTRATOR_PORT, () => {
     },
     "orchestrator listening",
   );
+  // Started only once the port is open: a task that phones someone should not
+  // fire while the process might still fail to come up.
+  container.taskRunner.start();
 });
 
 let shuttingDown = false;

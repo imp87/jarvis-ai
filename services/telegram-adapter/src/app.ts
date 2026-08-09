@@ -1,11 +1,18 @@
 import express, { type Express } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import type { Logger } from "@jarvis/shared";
+import { z } from "zod";
+import { safeEqual, type Logger } from "@jarvis/shared";
 import type { Env } from "./config.js";
 import type { UpdateHandler } from "./handler.js";
 import { telegramUpdateSchema } from "./telegram.js";
 import { requireTelegramSecret, requireTelegramSourceIp } from "./security.js";
+
+const outboundSchema = z.object({
+  /** Telegram chat id, as a string because that is what the orchestrator stores. */
+  channelUserId: z.string().regex(/^-?\d+$/, "expected a numeric Telegram chat id"),
+  text: z.string().min(1).max(32_000),
+});
 
 export function createApp(
   env: Env,
@@ -22,6 +29,45 @@ export function createApp(
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", mode: env.TELEGRAM_MODE });
   });
+
+  /**
+   * Proactive delivery: the orchestrator pushing a message nobody asked for.
+   *
+   * Everything until now was request/response — the agent only ever spoke when
+   * spoken to. Scheduled tasks need the other direction, and so does anything
+   * that finds out something matters while you are not looking.
+   *
+   * Authenticated with the same service token as every other internal hop; it
+   * is not reachable from Telegram and must never be from the internet.
+   */
+  app.post(
+    "/v1/outbound",
+    express.json({ limit: "256kb" }),
+    (req, res, next) => {
+      const header = req.header("authorization") ?? "";
+      const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+      if (!safeEqual(presented, env.SERVICE_TOKEN)) {
+        logger.warn({ ip: req.ip }, "outbound push with a bad token");
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
+      next();
+    },
+    async (req, res) => {
+      const parsed = outboundSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "invalid request", details: parsed.error.issues });
+        return;
+      }
+      try {
+        await handler.sendProactive(Number(parsed.data.channelUserId), parsed.data.text);
+        res.json({ ok: true });
+      } catch (err) {
+        logger.error({ err: String(err) }, "proactive delivery failed");
+        res.status(502).json({ error: `delivery failed: ${(err as Error).message}` });
+      }
+    },
+  );
 
   if (env.TELEGRAM_MODE === "webhook") {
     const secret = env.TELEGRAM_WEBHOOK_SECRET!;

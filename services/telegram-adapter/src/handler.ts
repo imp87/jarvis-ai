@@ -154,6 +154,19 @@ export class UpdateHandler {
     }
   }
 
+  /**
+   * A message the user did not ask for — a scheduled task reporting, or the
+   * agent raising something on its own.
+   *
+   * Always text, never a voice note: an unprompted voice message arrives with
+   * no context and cannot be skimmed, and the per-channel reply format is about
+   * how the agent answers *you*, not how it interrupts you.
+   */
+  async sendProactive(chatId: number, text: string): Promise<void> {
+    await this.sendText(chatId, text);
+    this.logger.info({ chatId, chars: text.length }, "proactive message delivered");
+  }
+
   /** Telegram rejects anything over 4096 characters, so split on that boundary. */
   private async sendText(chatId: number, text: string): Promise<void> {
     for (let offset = 0; offset < text.length; offset += MAX_TEXT_LENGTH) {

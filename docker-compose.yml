@@ -55,6 +55,11 @@ services:
       MAX_CALLS_PER_DAY: ${MAX_CALLS_PER_DAY:-8}
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
       VOICE_PIPELINE_URL: ${VOICE_PIPELINE_URL:-}
+      # Lets the orchestrator speak first — scheduled tasks and anything it
+      # notices while nobody is watching. Without it that tool is withheld
+      # rather than offered and silently failing.
+      TELEGRAM_ADAPTER_URL: ${TELEGRAM_ADAPTER_URL:-http://telegram-adapter:8081}
+      TASK_POLL_INTERVAL_MS: ${TASK_POLL_INTERVAL_MS:-20000}
       # stdio MCP servers run inside this container, so their paths are container
       # paths. Registry rows store ${MCP_WORKSPACE_DIR} rather than a literal
       # path, which is what lets one row work on a dev host and here.
@@ -170,6 +175,7 @@ services:
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
       VOICE_GREETING: ${VOICE_GREETING:-Hallo, hier ist Jarvis. Was kann ich für dich tun?}
       VOICE_IDLE_HANGUP_MS: ${VOICE_IDLE_HANGUP_MS:-30000}
+      VOICE_MODE: ${VOICE_MODE:-turn}
       STT_ENGINE: ${STT_ENGINE:-local}
       TTS_ENGINE: ${TTS_ENGINE:-local}
       WHISPER_MODEL: ${WHISPER_MODEL:-Xenova/whisper-base}
@@ -178,6 +184,8 @@ services:
       OPENAI_STT_MODEL: ${OPENAI_STT_MODEL:-}
       OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
       OPENAI_TTS_SPEED: ${OPENAI_TTS_SPEED:-1.15}
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-2.1}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-marin}
     volumes:
       - speech-models:/models
       # Shared with Asterisk: the pipeline writes call files, Asterisk dials them.

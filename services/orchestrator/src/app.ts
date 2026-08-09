@@ -9,6 +9,7 @@ import { healthRoutes, statusRoutes } from "./routes/health.js";
 import { messageRoutes } from "./routes/messages.js";
 import { registryRoutes } from "./routes/registry.js";
 import { adminRoutes } from "./routes/admin.js";
+import { taskRoutes } from "./routes/tasks.js";
 
 export function createApp(container: Container): Express {
   const app = express();
@@ -41,6 +42,7 @@ export function createApp(container: Container): Express {
   authed.use(messageRoutes(container));
   authed.use(registryRoutes(container));
   authed.use(adminRoutes(container));
+  authed.use(taskRoutes(container));
   app.use(authed);
 
   app.use((req, _res, next) => {

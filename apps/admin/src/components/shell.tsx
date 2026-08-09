@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/mcp", label: "MCP servers" },
   { href: "/connectors", label: "Connectors" },
+  { href: "/tasks", label: "Tasks" },
   { href: "/users", label: "Users" },
   { href: "/settings", label: "Settings" },
 ];

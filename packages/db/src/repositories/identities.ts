@@ -75,6 +75,21 @@ export class IdentityRepository {
     );
   }
 
+  /**
+   * The channel-side id to deliver to, or null when this user has no enabled
+   * identity there. Mirrors the inbound gate: revoking an identity must silence
+   * both directions, not just stop them reaching us.
+   */
+  async findEnabledIdentity(userId: string, channel: ChannelName): Promise<string | null> {
+    const { rows } = await this.pool.query<{ channel_user_id: string }>(
+      `SELECT channel_user_id FROM identities
+        WHERE user_id = $1 AND channel = $2 AND enabled
+        LIMIT 1`,
+      [userId, channel],
+    );
+    return rows[0]?.channel_user_id ?? null;
+  }
+
   async listUsers(): Promise<UserRow[]> {
     const { rows } = await this.pool.query<{
       id: string;

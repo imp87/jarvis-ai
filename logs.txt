@@ -1,103 +1,26 @@
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:07] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:53806' (callid: 297194183-1481835962-685231299) - Failed to authenticate
-orchestrator-1      | {"level":30,"time":1786284795315,"pid":1,"hostname":"8cd076165f61","name":"orchestrator","tool":"end_call","source":"builtin","ok":true,"durationMs":1,"msg":"tool executed"}
-voice-pipeline-1    | {"level":30,"time":1786284796298,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"1de6a4b7-5833-4b24-ba5a-e050020e98be","turn":1,"audioMs":680,"sttMs":834,"llmMs":2584,"heard":"Hörst du mich gut?","endCall":"Die Frage wurde beantwortet; der Anruf wird beendet.","msg":"turn processed"}
-asterisk-1          | [Aug  9 14:13:16] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:52394' (callid: 370074430-2094945325-1974623396) - No matching endpoint found
-voice-pipeline-1    | {"level":30,"time":1786284800292,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"1de6a4b7-5833-4b24-ba5a-e050020e98be","reason":"Die Frage wurde beantwortet; der Anruf wird beendet.","msg":"agent ended the call"}
-voice-pipeline-1    | {"level":30,"time":1786284800293,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"1de6a4b7-5833-4b24-ba5a-e050020e98be","turns":1,"endedBecause":"agent","msg":"call finished"}
-asterisk-1          |     -- Channel WebSocket/jarvis-media/0x7f52fc00cb60 left 'simple_bridge' basic-bridge <d03d7fbd-215d-4c7e-aab3-ba268a46983d>
-asterisk-1          |     -- Channel PJSIP/fritzbox-00000000 left 'simple_bridge' basic-bridge <d03d7fbd-215d-4c7e-aab3-ba268a46983d>
-asterisk-1          |   == Spawn extension (jarvis-outbound, s, 4) exited non-zero on 'PJSIP/fritzbox-00000000'
-asterisk-1          | [Aug  9 14:13:20] NOTICE[81][C-00000001]: pbx_spool.c:463 attempt_thread: Call completed to PJSIP/004915561049738@fritzbox
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - Failed to authenticate
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - No matching endpoint found
-asterisk-1          | [Aug  9 14:13:23] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'REGISTER' from '<sip:900@45.82.122.75>' failed for '51.91.214.106:64823' (callid: 2064236649-1492386084-1839957446) - Failed to authenticate
-voice-pipeline-1    | {"level":30,"time":1786284808229,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","endpoint":"fritzbox","msg":"call file queued"}
-asterisk-1          | [Aug  9 14:13:28] WARNING[74]: pbx_spool.c:353 safe_append: Unable to set utime on /var/spool/asterisk/outgoing/d3c70439-ee9f-4a57-8a1d-2a351c226d07.call: Operation not permitted
-asterisk-1          |     -- Attempting call on PJSIP/004915561049738@fritzbox for s@jarvis-outbound:1 (Retry 1)
-voice-pipeline-1    | {"level":30,"time":1786284808229,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","to":"+4915***38","reason":"Der Nutzer bittet erneut ausdrücklich um einen Anruf.","msg":"outbound call queued"}
-asterisk-1          |     -- Called 004915561049738@fritzbox
-orchestrator-1      | {"level":30,"time":1786284808234,"pid":1,"hostname":"8cd076165f61","name":"orchestrator","tool":"place_phone_call","source":"builtin","ok":true,"durationMs":18,"msg":"tool executed"}
-asterisk-1          |     -- PJSIP/fritzbox-00000001 is making progress
-asterisk-1          |     -- PJSIP/fritzbox-00000001 answered
-asterisk-1          |     -- Executing [s@jarvis-outbound:1] NoOp("PJSIP/fritzbox-00000001", "outbound call d3c70439-ee9f-4a57-8a1d-2a351c226d07") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:2] Wait("PJSIP/fritzbox-00000001", "0.5") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:3] Set("PJSIP/fritzbox-00000001", "__JARVIS_CALL_ID=d3c70439-ee9f-4a57-8a1d-2a351c226d07") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:4] Dial("PJSIP/fritzbox-00000001", "WebSocket/jarvis-media/c(slin16)f(json),,b(jarvis-ws-vars^s^1(d3c70439-ee9f-4a57-8a1d-2a351c226d07))") in new stack
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5300006dd0 Internal Gosub(jarvis-ws-vars,s,1(d3c70439-ee9f-4a57-8a1d-2a351c226d07)) start
-asterisk-1          |     -- Executing [s@jarvis-ws-vars:1] Set("WebSocket/jarvis-media/0x7f5300006dd0", "JARVIS_CALL_ID=d3c70439-ee9f-4a57-8a1d-2a351c226d07") in new stack
-asterisk-1          |     -- Executing [s@jarvis-ws-vars:2] Return("WebSocket/jarvis-media/0x7f5300006dd0", "") in new stack
-asterisk-1          |   == Spawn extension (default, s, 1) exited non-zero on 'WebSocket/jarvis-media/0x7f5300006dd0'
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5300006dd0 Internal Gosub(jarvis-ws-vars,s,1(d3c70439-ee9f-4a57-8a1d-2a351c226d07)) complete GOSUB_RETVAL=
-asterisk-1          |     -- Called WebSocket/jarvis-media/c(slin16)f(json)
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5300006dd0 answered PJSIP/fritzbox-00000001
-asterisk-1          |     -- Channel WebSocket/jarvis-media/0x7f5300006dd0 joined 'simple_bridge' basic-bridge <b9b02052-c253-4e00-ad59-dfb7810622a2>
-asterisk-1          |     -- Channel PJSIP/fritzbox-00000001 joined 'simple_bridge' basic-bridge <b9b02052-c253-4e00-ad59-dfb7810622a2>
-voice-pipeline-1    | {"level":30,"time":1786284811154,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","format":"slin16","ptime":20,"frameBytes":640,"msg":"wideband websocket media connected"}
-voice-pipeline-1    | {"level":30,"time":1786284811155,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","direction":"outbound","msg":"call connected"}
-asterisk-1          | [Aug  9 14:13:37] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:201@45.82.122.75>' failed for '51.91.214.106:51845' (callid: 1921788438-352916762-742758415) - No matching endpoint found
-orchestrator-1      | {"level":30,"time":1786284821651,"pid":1,"hostname":"8cd076165f61","name":"orchestrator","tool":"end_call","source":"builtin","ok":true,"durationMs":0,"msg":"tool executed"}
-voice-pipeline-1    | {"level":30,"time":1786284822644,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","turn":1,"audioMs":360,"sttMs":677,"llmMs":2352,"heard":"Merci.","endCall":"Der Nutzer bedankt sich; der Anruf wird beendet.","msg":"turn processed"}
-asterisk-1          | [Aug  9 14:13:46] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:50969' (callid: 337082710-363019683-849141072) - No matching endpoint found
-voice-pipeline-1    | {"level":30,"time":1786284827532,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","reason":"Der Nutzer bedankt sich; der Anruf wird beendet.","msg":"agent ended the call"}
-voice-pipeline-1    | {"level":30,"time":1786284827532,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"d3c70439-ee9f-4a57-8a1d-2a351c226d07","turns":1,"endedBecause":"agent","msg":"call finished"}
-asterisk-1          |     -- Channel WebSocket/jarvis-media/0x7f5300006dd0 left 'simple_bridge' basic-bridge <b9b02052-c253-4e00-ad59-dfb7810622a2>
-asterisk-1          |     -- Channel PJSIP/fritzbox-00000001 left 'simple_bridge' basic-bridge <b9b02052-c253-4e00-ad59-dfb7810622a2>
-asterisk-1          |   == Spawn extension (jarvis-outbound, s, 4) exited non-zero on 'PJSIP/fritzbox-00000001'
-asterisk-1          | [Aug  9 14:13:47] NOTICE[84][C-00000002]: pbx_spool.c:463 attempt_thread: Call completed to PJSIP/004915561049738@fritzbox
-asterisk-1          | [Aug  9 14:13:52] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:2000@45.82.122.75>' failed for '51.91.214.106:61462' (callid: 582662512-995268464-1740609841) - No matching endpoint found
 
-
-voice-pipeline-1    | {"level":30,"time":1786284832663,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","endpoint":"fritzbox","msg":"call file queued"}
-asterisk-1          | [Aug  9 14:13:52] WARNING[74]: pbx_spool.c:353 safe_append: Unable to set utime on /var/spool/asterisk/outgoing/deb84c06-84be-466a-84cb-8c0a868bfa84.call: Operation not permitted
-asterisk-1          |     -- Attempting call on PJSIP/004915561049738@fritzbox for s@jarvis-outbound:1 (Retry 1)
-voice-pipeline-1    | {"level":30,"time":1786284832663,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","to":"+4915***38","reason":"Der Nutzer bittet erneut ausdrücklich um einen Anruf.","msg":"outbound call queued"}
-asterisk-1          |     -- Called 004915561049738@fritzbox
-orchestrator-1      | {"level":30,"time":1786284832670,"pid":1,"hostname":"8cd076165f61","name":"orchestrator","tool":"place_phone_call","source":"builtin","ok":true,"durationMs":14,"msg":"tool executed"}
-asterisk-1          |     -- PJSIP/fritzbox-00000002 is making progress
-asterisk-1          |     -- PJSIP/fritzbox-00000002 answered
-asterisk-1          |     -- Executing [s@jarvis-outbound:1] NoOp("PJSIP/fritzbox-00000002", "outbound call deb84c06-84be-466a-84cb-8c0a868bfa84") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:2] Wait("PJSIP/fritzbox-00000002", "0.5") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:3] Set("PJSIP/fritzbox-00000002", "__JARVIS_CALL_ID=deb84c06-84be-466a-84cb-8c0a868bfa84") in new stack
-asterisk-1          |     -- Executing [s@jarvis-outbound:4] Dial("PJSIP/fritzbox-00000002", "WebSocket/jarvis-media/c(slin16)f(json),,b(jarvis-ws-vars^s^1(deb84c06-84be-466a-84cb-8c0a868bfa84))") in new stack
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5308007ca0 Internal Gosub(jarvis-ws-vars,s,1(deb84c06-84be-466a-84cb-8c0a868bfa84)) start
-asterisk-1          |     -- Executing [s@jarvis-ws-vars:1] Set("WebSocket/jarvis-media/0x7f5308007ca0", "JARVIS_CALL_ID=deb84c06-84be-466a-84cb-8c0a868bfa84") in new stack
-asterisk-1          |     -- Executing [s@jarvis-ws-vars:2] Return("WebSocket/jarvis-media/0x7f5308007ca0", "") in new stack
-asterisk-1          |   == Spawn extension (default, s, 1) exited non-zero on 'WebSocket/jarvis-media/0x7f5308007ca0'
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5308007ca0 Internal Gosub(jarvis-ws-vars,s,1(deb84c06-84be-466a-84cb-8c0a868bfa84)) complete GOSUB_RETVAL=
-asterisk-1          |     -- Called WebSocket/jarvis-media/c(slin16)f(json)
-asterisk-1          |     -- WebSocket/jarvis-media/0x7f5308007ca0 answered PJSIP/fritzbox-00000002
-voice-pipeline-1    | {"level":30,"time":1786284835493,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","format":"slin16","ptime":20,"frameBytes":640,"msg":"wideband websocket media connected"}
-asterisk-1          |     -- Channel WebSocket/jarvis-media/0x7f5308007ca0 joined 'simple_bridge' basic-bridge <b4714e99-9cde-43b7-bf47-3cc8ca04e399>
-asterisk-1          |     -- Channel PJSIP/fritzbox-00000002 joined 'simple_bridge' basic-bridge <b4714e99-9cde-43b7-bf47-3cc8ca04e399>
-voice-pipeline-1    | {"level":30,"time":1786284835493,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","direction":"outbound","msg":"call connected"}
-asterisk-1          | [Aug  9 14:14:11] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:63426' (callid: 290064367-393104334-2012706060) - No matching endpoint found
-asterisk-1          | [Aug  9 14:14:11] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:63426' (callid: 290064367-393104334-2012706060) - No matching endpoint found
-asterisk-1          | [Aug  9 14:14:11] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:63426' (callid: 290064367-393104334-2012706060) - Failed to authenticate
-asterisk-1          | [Aug  9 14:14:11] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:63426' (callid: 290064367-393104334-2012706060) - No matching endpoint found
-asterisk-1          | [Aug  9 14:14:11] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:11@45.82.122.75>' failed for '51.91.214.106:63426' (callid: 290064367-393104334-2012706060) - Failed to authenticate
-orchestrator-1      | {"level":30,"time":1786284853968,"pid":1,"hostname":"8cd076165f61","name":"orchestrator","tool":"end_call","source":"builtin","ok":true,"durationMs":0,"msg":"tool executed"}
-voice-pipeline-1    | {"level":30,"time":1786284855167,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","turn":1,"audioMs":1640,"sttMs":778,"llmMs":3494,"heard":"Ich möchte nicht, dass du einfach auflegst.","endCall":"Die Anweisung wurde bestätigt; der Anruf wird beendet.","msg":"turn processed"}
-asterisk-1          | [Aug  9 14:14:18] NOTICE[37]: res_pjsip/pjsip_distributor.c:688 log_failed_request: Request 'INVITE' from '<sip:201@45.82.122.75>' failed for '51.91.214.106:51979' (callid: 49647838-1387779902-2017084517) - No matching endpoint found
-voice-pipeline-1    | {"level":30,"time":1786284861091,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","reason":"Die Anweisung wurde bestätigt; der Anruf wird beendet.","msg":"agent ended the call"}
-asterisk-1          |     -- Channel WebSocket/jarvis-media/0x7f5308007ca0 left 'simple_bridge' basic-bridge <b4714e99-9cde-43b7-bf47-3cc8ca04e399>
-asterisk-1          |     -- Channel PJSIP/fritzbox-00000002 left 'simple_bridge' basic-bridge <b4714e99-9cde-43b7-bf47-3cc8ca04e399>
-asterisk-1          |   == Spawn extension (jarvis-outbound, s, 4) exited non-zero on 'PJSIP/fritzbox-00000002'
-voice-pipeline-1    | {"level":30,"time":1786284861091,"pid":1,"hostname":"9d3a8b847070","name":"voice-pipeline","callId":"deb84c06-84be-466a-84cb-8c0a868bfa84","turns":1,"endedBecause":"agent","msg":"call finished"}
-asterisk-1          | [Aug  9 14:14:21] NOTICE[86][C-00000003]: pbx_spool.c:463 attempt_thread: Call completed to PJSIP/004915561049738@fritzbox
+telegram-adapter-1 exited with code 137 (restarting)
+telegram-adapter-1  | {"level":30,"time":1786285704909,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
+telegram-adapter-1  | {"level":30,"time":1786285704922,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
+telegram-adapter-1  | {"level":30,"time":1786285704922,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
+telegram-adapter-1  | {"level":30,"time":1786285705826,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":904,"msg":"speech model ready"}
+telegram-adapter-1  | {"level":30,"time":1786285705830,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
+telegram-adapter-1  | {"level":30,"time":1786285705846,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
+telegram-adapter-1  | {"level":30,"time":1786285705846,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
+telegram-adapter-1 exited with code 137 (restarting)
+telegram-adapter-1  | {"level":30,"time":1786285709647,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
+telegram-adapter-1  | {"level":30,"time":1786285709661,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
+telegram-adapter-1  | {"level":30,"time":1786285709662,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
+telegram-adapter-1  | {"level":30,"time":1786285710661,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":1000,"msg":"speech model ready"}
+telegram-adapter-1  | {"level":30,"time":1786285710666,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
+telegram-adapter-1  | {"level":30,"time":1786285710690,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
+telegram-adapter-1  | {"level":30,"time":1786285710690,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
+telegram-adapter-1 exited with code 137 (restarting)
+telegram-adapter-1  | {"level":30,"time":1786285714898,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","bot":"personal_steven_bot","id":8606295206,"mode":"polling","msg":"connected to Telegram"}
+telegram-adapter-1  | {"level":30,"time":1786285714902,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","orchestratorUrl":"http://orchestrator:8080","msg":"orchestrator reachable"}
+telegram-adapter-1  | {"level":30,"time":1786285714902,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","msg":"loading local Whisper model (first use)"}
+telegram-adapter-1  | {"level":30,"time":1786285715888,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","model":"Xenova/whisper-base","ms":986,"msg":"speech model ready"}
+telegram-adapter-1  | {"level":30,"time":1786285715893,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","port":8081,"msg":"telegram adapter listening"}
+telegram-adapter-1  | {"level":30,"time":1786285715910,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","reason":"no inbound reachability required","msg":"running in long-polling mode — supported deployment, but only one instance may poll a given bot at a time"}
+telegram-adapter-1  | {"level":30,"time":1786285715910,"pid":1,"hostname":"76949ccfaf65","name":"telegram-adapter","timeoutSeconds":30,"msg":"long-polling started"}
+telegram-adapter-1 exited with code 137 (restarting)

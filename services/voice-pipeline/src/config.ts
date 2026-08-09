@@ -25,6 +25,8 @@ export const envSchema = z
     VOICE_GREETING: z.string().default("Hallo, hier ist Jarvis. Was kann ich für dich tun?"),
     /** Hang up after this much silence. */
     VOICE_IDLE_HANGUP_MS: z.coerce.number().int().positive().default(30_000),
+    /** Per-utterance STT/LLM/TTS or continuous OpenAI Realtime audio. */
+    VOICE_MODE: z.enum(["turn", "realtime"]).default("turn"),
 
     // --- Speech -------------------------------------------------------------
     STT_ENGINE: z.enum(["local", "openai"]).default("local"),
@@ -42,14 +44,18 @@ export const envSchema = z
     OPENAI_STT_PROMPT: z.string().max(2_000).optional(),
     /** Slightly brisker than the API default, which feels slow on a phone call. */
     OPENAI_TTS_SPEED: z.coerce.number().min(0.25).max(4).default(1.15),
+    OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
+    OPENAI_REALTIME_VOICE: z.string().default("marin"),
   })
   .refine((v) => v.TTS_ENGINE !== "local" || (Boolean(v.PIPER_BINARY) && Boolean(v.PIPER_MODEL)), {
     message: "local TTS needs PIPER_BINARY and PIPER_MODEL, or set TTS_ENGINE=openai",
     path: ["PIPER_BINARY"],
   })
   .refine(
-    (v) => (v.STT_ENGINE !== "openai" && v.TTS_ENGINE !== "openai") || Boolean(v.OPENAI_API_KEY),
-    { message: "OPENAI_API_KEY is required when an engine is set to openai", path: ["OPENAI_API_KEY"] },
+    (v) =>
+      (v.STT_ENGINE !== "openai" && v.TTS_ENGINE !== "openai" && v.VOICE_MODE !== "realtime") ||
+      Boolean(v.OPENAI_API_KEY),
+    { message: "OPENAI_API_KEY is required for OpenAI speech or VOICE_MODE=realtime", path: ["OPENAI_API_KEY"] },
   );
 
 export type Env = z.infer<typeof envSchema>;

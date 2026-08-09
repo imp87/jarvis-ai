@@ -12,6 +12,7 @@ const { OrchestratorClient } = await import("./orchestrator.js");
 const { WebSocketMediaServer } = await import("./transports/websocket-media.js");
 const { CallOriginator } = await import("./originate.js");
 const { CallSession } = await import("./session.js");
+const { RealtimeCallSession } = await import("./realtime-session.js");
 const { createApp } = await import("./app.js");
 
 const env = loadConfig();
@@ -58,14 +59,21 @@ const handleCall = async (
       ? `Hallo, hier ist Jarvis. ${context}`
       : env.VOICE_GREETING;
 
-  const session = new CallSession(transport, speech, orchestrator, pending.channelUserId, logger, {
-    greeting,
-    language: "de",
-    idleHangupMs: env.VOICE_IDLE_HANGUP_MS,
-  });
-
-  logger.info({ callId: pending.callId, direction: pending.direction }, "call connected");
-  const result = await session.run();
+  logger.info({ callId: pending.callId, direction: pending.direction, mode: env.VOICE_MODE }, "call connected");
+  const result =
+    env.VOICE_MODE === "realtime"
+      ? await new RealtimeCallSession(transport, orchestrator, pending.channelUserId, logger, {
+          apiKey: env.OPENAI_API_KEY!,
+          model: env.OPENAI_REALTIME_MODEL,
+          voice: env.OPENAI_REALTIME_VOICE,
+          greeting,
+          idleHangupMs: env.VOICE_IDLE_HANGUP_MS,
+        }).run()
+      : await new CallSession(transport, speech, orchestrator, pending.channelUserId, logger, {
+          greeting,
+          language: "de",
+          idleHangupMs: env.VOICE_IDLE_HANGUP_MS,
+        }).run();
   logger.info(
     { callId: pending.callId, turns: result.turns, endedBecause: result.endedBecause },
     "call finished",

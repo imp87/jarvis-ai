@@ -5,6 +5,7 @@ import {
   MemoryRepository,
   RegistryRepository,
   SettingsRepository,
+  TaskRepository,
   createPool,
   type McpServerRow,
   type Pool,
@@ -19,6 +20,10 @@ import { ToolRegistry } from "./agent/tools/registry.js";
 import { CallService } from "./services/calls.js";
 import { MemoryService } from "./services/memory.js";
 import { PolicyService } from "./services/policy.js";
+import { NotificationService } from "./services/notify.js";
+import { TaskService } from "./services/tasks.js";
+import { TaskRunner } from "./services/task-runner.js";
+import { buildTaskTools } from "./agent/tools/tasks.js";
 
 export interface Container {
   config: AppConfig;
@@ -32,6 +37,7 @@ export interface Container {
     registry: RegistryRepository;
     calls: CallRepository;
     settings: SettingsRepository;
+    tasks: TaskRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -39,6 +45,9 @@ export interface Container {
   memory: MemoryService;
   calls: CallService;
   policy: PolicyService;
+  notifications: NotificationService;
+  taskService: TaskService;
+  taskRunner: TaskRunner;
   agent: AgentLoop;
   shutdown(): Promise<void>;
 }
@@ -56,6 +65,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     registry: new RegistryRepository(pool),
     calls: new CallRepository(pool),
     settings: new SettingsRepository(pool),
+    tasks: new TaskRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -102,11 +112,22 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
   const mcp = new McpManager(logger);
   await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger);
 
-  const builtins = buildBuiltinTools({
-    memory,
-    calls,
-    ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
-  });
+  const notifications = new NotificationService(
+    repos.identities,
+    { telegram: env.TELEGRAM_ADAPTER_URL },
+    env.SERVICE_TOKEN,
+    logger,
+  );
+  const taskService = new TaskService(repos.tasks);
+
+  const builtins = [
+    ...buildBuiltinTools({
+      memory,
+      calls,
+      ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
+    }),
+    ...buildTaskTools({ tasks: repos.tasks, taskService, notifications }),
+  ];
   const tools = new ToolRegistry(
     builtins,
     mcp,
@@ -122,6 +143,15 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     maxHistoryChars: env.MAX_HISTORY_CHARS,
   });
 
+  const taskRunner = new TaskRunner(
+    repos.tasks,
+    repos.conversations,
+    agent,
+    notifications,
+    logger,
+    { pollIntervalMs: env.TASK_POLL_INTERVAL_MS },
+  );
+
   return {
     config,
     logger,
@@ -134,8 +164,12 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     memory,
     calls,
     policy,
+    notifications,
+    taskService,
+    taskRunner,
     agent,
     async shutdown() {
+      await taskRunner.stop();
       await mcp.disconnectAll();
       await pool.end();
     },

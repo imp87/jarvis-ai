@@ -50,6 +50,15 @@ export const baseEnvSchema = z.object({
    * kilobytes or forty megabytes.
    */
   MAX_HISTORY_CHARS: z.coerce.number().int().positive().default(48_000),
+
+  /**
+   * Where to push proactive messages. Absent means the agent has no way to
+   * speak first on that channel, and the tool for it is withheld rather than
+   * offered and silently failing.
+   */
+  TELEGRAM_ADAPTER_URL: z.string().url().optional(),
+  /** How often the scheduler looks for due tasks. */
+  TASK_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(20_000),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;

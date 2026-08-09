@@ -6,3 +6,4 @@ export * from "./repositories/memories.js";
 export * from "./repositories/registry.js";
 export * from "./repositories/calls.js";
 export * from "./repositories/settings.js";
+export * from "./repositories/tasks.js";

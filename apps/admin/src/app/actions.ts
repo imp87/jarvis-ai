@@ -11,6 +11,8 @@ import {
   connectorSchema,
   endpointSchema,
   mcpServerSchema,
+  taskSchema,
+  type TaskInput,
   type AuthInput,
   type ConnectorInput,
   type EndpointInput,
@@ -324,6 +326,64 @@ export async function updateChannelSettings(
     );
     revalidatePath("/users");
     return ok(`${channel} settings saved.`);
+  });
+}
+
+// --- Scheduled tasks -------------------------------------------------------
+
+export async function createTask(raw: TaskInput): Promise<ActionResult> {
+  return attempt("Task created.", async () => {
+    const input = taskSchema.parse(raw);
+    const result = await api.post<{ task: { title: string; nextRunAt: string | null } }>(
+      "/v1/tasks",
+      {
+        userId: input.userId,
+        title: input.title,
+        kind: input.kind,
+        prompt: input.prompt,
+        channel: input.channel,
+        scheduleKind: input.scheduleKind,
+        ...(input.scheduleKind === "interval" ? { intervalSeconds: input.intervalSeconds } : {}),
+        ...(input.scheduleKind === "cron" ? { cron: input.cron } : {}),
+        // `datetime-local` has no zone; the browser's own offset is the only
+        // sane reading of what the person typed.
+        ...(input.scheduleKind === "once" ? { runAt: new Date(input.runAt).toISOString() } : {}),
+        timezone: input.timezone,
+      },
+    );
+    revalidatePath("/tasks");
+    const next = result.task.nextRunAt
+      ? new Date(result.task.nextRunAt).toLocaleString("de-DE")
+      : "never";
+    return ok(`"${result.task.title}" scheduled — first run ${next}.`);
+  });
+}
+
+export async function setTaskEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch(`/v1/tasks/${z.string().uuid().parse(id)}`, { enabled });
+    revalidatePath("/tasks");
+    return ok(enabled ? "Task resumed and rescheduled." : "Task paused.");
+  });
+}
+
+export async function deleteTask(id: string): Promise<ActionResult> {
+  return attempt("Task deleted.", async () => {
+    await api.delete(`/v1/tasks/${z.string().uuid().parse(id)}`);
+    revalidatePath("/tasks");
+  });
+}
+
+/** Runs a task immediately without disturbing its schedule. */
+export async function runTaskNow(id: string): Promise<ActionResult> {
+  return attempt("Run finished.", async () => {
+    const result = await api.post<{ status: "ok" | "failed"; summary: string }>(
+      `/v1/tasks/${z.string().uuid().parse(id)}/run`,
+    );
+    revalidatePath("/tasks");
+    return result.status === "ok"
+      ? ok(result.summary.slice(0, 400) || "Ran with no output.")
+      : warn(`Run failed: ${result.summary}`);
   });
 }
 
