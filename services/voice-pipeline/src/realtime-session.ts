@@ -145,7 +145,10 @@ export class RealtimeCallSession {
       event_id: "jarvis-session-config",
       session: {
         type: "realtime",
-        modalities: ["text", "audio"],
+        // Realtime 2.x accepts a single output mode. Audio responses include
+        // their transcript automatically; requesting text and audio together
+        // is not valid in the current schema.
+        output_modalities: ["audio"],
         instructions:
           "You are Jarvis, Master's private butler and the real-time phone voice for his personal " +
           "assistant. Speak German naturally, concisely, confidently, and at a brisk conversational " +
@@ -160,22 +163,24 @@ export class RealtimeCallSession {
         // audio.output/audio.input. The former top-level fields are silently
         // ignored by newer sessions, which leaves OpenAI's default voice on.
         audio: {
-          input: { format: { type: "audio/pcm", rate: OPENAI_SAMPLE_RATE } },
+          input: {
+            format: { type: "audio/pcm", rate: OPENAI_SAMPLE_RATE },
+            transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.45,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 650,
+              create_response: true,
+              interrupt_response: true,
+              idle_timeout_ms: this.options.idleHangupMs,
+            },
+          },
           output: {
             format: { type: "audio/pcm", rate: OPENAI_SAMPLE_RATE },
             voice: this.options.voice,
             speed: 1.15,
           },
-        },
-        input_audio_transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
-        turn_detection: {
-          type: "server_vad",
-          threshold: 0.45,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 650,
-          create_response: true,
-          interrupt_response: true,
-          idle_timeout_ms: this.options.idleHangupMs,
         },
         tools: [
           {
@@ -206,12 +211,7 @@ export class RealtimeCallSession {
     this.send({
       type: "response.create",
       response: {
-        modalities: ["audio"],
         tool_choice: "none",
-        // Repeat the required voice on the first response. The session has
-        // already been acknowledged above, so this is a redundant safeguard,
-        // not a late attempt to switch voices.
-        audio: { output: { voice: this.options.voice } },
         conversation: "none",
         instructions:
           "Output exactly the following German sentence, character for character. Do not translate " +
@@ -337,7 +337,6 @@ export class RealtimeCallSession {
     this.send({
       type: "response.create",
       response: {
-        modalities: ["audio"],
         // This response must read the already-authorised orchestrator result,
         // not start a second delegation loop.
         tool_choice: "none",
