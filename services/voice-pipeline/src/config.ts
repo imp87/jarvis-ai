@@ -20,9 +20,6 @@ export const envSchema = z
     /** Number the agent dials from, if the extension serves several. */
     SIP_CALLER_ID: z.string().optional(),
 
-    /** TCP port Asterisk's AudioSocket connects to. */
-    AUDIOSOCKET_PORT: z.coerce.number().int().positive().default(8090),
-
     OWNER_PHONE_NUMBER: z.string().optional(),
     /** Spoken when the agent answers, before it knows why you called. */
     VOICE_GREETING: z.string().default("Hallo, hier ist Jarvis. Was kann ich für dich tun?"),
@@ -39,6 +36,10 @@ export const envSchema = z
     PIPER_MODEL: z.string().optional(),
     PIPER_SAMPLE_RATE: z.coerce.number().int().positive().default(22_050),
     OPENAI_API_KEY: z.string().optional(),
+    /** Full model is a useful accuracy upgrade for narrowband phone audio. */
+    OPENAI_STT_MODEL: z.string().optional(),
+    /** German context and product names guide transcription without changing audio. */
+    OPENAI_STT_PROMPT: z.string().max(2_000).optional(),
   })
   .refine((v) => v.TTS_ENGINE !== "local" || (Boolean(v.PIPER_BINARY) && Boolean(v.PIPER_MODEL)), {
     message: "local TTS needs PIPER_BINARY and PIPER_MODEL, or set TTS_ENGINE=openai",

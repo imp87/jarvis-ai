@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { FRAME_BYTES, FRAME_MS, type CallTransport } from "../transport.js";
+import { FRAME_BYTES, FRAME_MS, TELEPHONY_SAMPLE_RATE, type CallTransport } from "../transport.js";
 
 /**
  * A call made of audio files instead of a phone line.
@@ -17,6 +17,7 @@ export class LoopbackTransport implements CallTransport {
   readonly callId = randomUUID();
   readonly direction: "inbound" | "outbound";
   readonly remoteNumber: string | null;
+  readonly sampleRate = TELEPHONY_SAMPLE_RATE;
 
   private audioHandler: ((frame: Buffer) => void) | undefined;
   private hangupHandler: (() => void) | undefined;

@@ -5,7 +5,7 @@ import {
   encodeAudio,
   encodeTerminate,
 } from "../audio/audiosocket-protocol.js";
-import type { CallTransport } from "../transport.js";
+import { TELEPHONY_SAMPLE_RATE, type CallTransport } from "../transport.js";
 
 /** ~500 ms of audio: enough to absorb synthesis jitter, short enough that the
  * session does not race ahead of what the caller is hearing. */
@@ -32,6 +32,7 @@ const NO_AUDIO_TIMEOUT_MS = 3000;
 class AudioSocketTransport implements CallTransport {
   direction: "inbound" | "outbound" = "inbound";
   remoteNumber: string | null = null;
+  readonly sampleRate = TELEPHONY_SAMPLE_RATE;
 
   private audioHandler: ((frame: Buffer) => void) | undefined;
   private hangupHandler: (() => void) | undefined;

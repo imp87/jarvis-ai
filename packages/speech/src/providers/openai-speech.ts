@@ -23,6 +23,7 @@ export interface OpenAiSpeechOptions {
   apiKey: string;
   baseUrl?: string;
   sttModel?: string;
+  sttPrompt?: string;
   ttsModel?: string;
   defaultVoice?: string;
   timeoutMs?: number;
@@ -61,6 +62,8 @@ export class OpenAiStt implements SttProvider {
     form.append("file", new Blob([new Uint8Array(payload.data)], { type: mime }), `audio.${ext}`);
     form.append("model", this.model);
     if (options.language) form.append("language", options.language);
+    const prompt = options.prompt ?? this.options.sttPrompt;
+    if (prompt) form.append("prompt", prompt);
 
     const response = await fetch(`${this.baseUrl}/audio/transcriptions`, {
       method: "POST",

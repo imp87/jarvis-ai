@@ -28,6 +28,12 @@ export interface AudioClip {
 export interface TranscriptionOptions {
   /** ISO-639-1 hint. Omit to let the model detect it. */
   language?: string;
+  /**
+   * Optional vocabulary/context hint for an STT provider. It is not an
+   * instruction to alter what was said: use it for product names and jargon
+   * that the recogniser otherwise tends to spell incorrectly.
+   */
+  prompt?: string;
 }
 
 export interface TranscriptionResult {

@@ -60,6 +60,8 @@ export const envSchema = z
     PIPER_VOICES_DIR: z.string().optional(),
     PIPER_SAMPLE_RATE: z.coerce.number().int().positive().default(22_050),
     OPENAI_API_KEY: z.string().optional(),
+    OPENAI_STT_MODEL: z.string().optional(),
+    OPENAI_STT_PROMPT: z.string().max(2_000).optional(),
   })
   .refine((v) => v.TELEGRAM_MODE !== "webhook" || Boolean(v.TELEGRAM_WEBHOOK_URL), {
     message: "TELEGRAM_WEBHOOK_URL is required when TELEGRAM_MODE=webhook",

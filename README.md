@@ -47,8 +47,10 @@ Set `ADMIN_PASSWORD` in `.env` (at least 12 characters), then:
 pnpm admin:dev        # http://localhost:3800
 ```
 
-Attaching an MCP server, adding an HTTP connector and its endpoints, and seeing
-which tools the agent currently has all happen here instead of by curl. The
+Attaching an MCP server, adding an HTTP connector and its endpoints, editing
+quiet hours and the call budget, managing users and their per-channel reply
+settings, and seeing which tools the agent currently has all happen here
+instead of by curl. The
 orchestrator's `SERVICE_TOKEN` stays server-side — every call goes through the
 Next.js server, so a browser session can never be turned into direct API access.
 When a server fails to connect, the reason is shown on the server's row rather
@@ -148,9 +150,17 @@ the container. Either mount Linux binaries or set `TTS_ENGINE=openai`.
 
 ## Configuration
 
-All configuration is environment variables, validated at startup — a missing
-secret crashes the process immediately rather than surfacing as a 500 later.
-See [.env.example](.env.example) for the full list.
+Configuration is environment variables, validated at startup — a missing secret
+crashes the process immediately rather than surfacing as a 500 later. See
+[.env.example](.env.example) for the full list.
+
+**Two exceptions, edited in the admin UI and stored in the database:** quiet
+hours and the call budget. They are decisions about your evening rather than
+deployment settings, they change more often than the code does, and requiring a
+container restart to move quiet hours by an hour is the kind of friction that
+ends with the guard rail switched off entirely. The environment still supplies
+the defaults; a setting you have not touched comes from there, and clearing an
+override hands it back rather than leaving a second, forgotten copy.
 
 LLM routing is **not** environment configuration: it lives in
 [`services/orchestrator/config/llm-routing.json`](services/orchestrator/config/llm-routing.json)

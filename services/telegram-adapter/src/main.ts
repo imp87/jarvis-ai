@@ -38,7 +38,11 @@ const speech = buildSpeech({
         },
       }
     : {}),
-  openai: { apiKey: env.OPENAI_API_KEY },
+  openai: {
+    apiKey: env.OPENAI_API_KEY,
+    ...(env.OPENAI_STT_MODEL ? { sttModel: env.OPENAI_STT_MODEL } : {}),
+    ...(env.OPENAI_STT_PROMPT ? { sttPrompt: env.OPENAI_STT_PROMPT } : {}),
+  },
 });
 
 const handler = new UpdateHandler(telegram, orchestrator, speech, logger, {

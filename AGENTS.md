@@ -21,7 +21,7 @@ Last reviewed: 2026-08-09.
 | `packages/speech` | Shared STT/TTS abstraction: local Whisper/Piper or OpenAI. |
 | `services/orchestrator` | Express API, identity gate, agent loop, memory retrieval, unified tool registry and all side-effect policy enforcement. |
 | `services/telegram-adapter` | Telegram webhook or long polling, voice-note STT/TTS, then forwards to the orchestrator. |
-| `services/voice-pipeline` | Asterisk/AudioSocket phone sessions; does not make policy decisions itself. |
+| `services/voice-pipeline` | Asterisk `chan_websocket`/`slin16` phone sessions; does not make policy decisions itself. |
 | `apps/admin` | Next.js 15 + Mantine administrative UI. It calls the orchestrator server-side so `SERVICE_TOKEN` never reaches the browser. |
 
 ## Important flows and invariants
@@ -54,8 +54,8 @@ Last reviewed: 2026-08-09.
   dimensions requires a new migration and re-embedding; do not change it
   casually once memories exist.
 - Docker binds local ports by default: Postgres `15432`, orchestrator `18780`,
-  Telegram adapter `18781`, voice HTTP `18782`, admin `18783`, AudioSocket
-  `18790`. The Next.js development server uses port `3800`.
+  Telegram adapter `18781`, voice HTTP/WebSocket media `18782`, admin `18783`.
+  The Next.js development server uses port `3800`.
 - Telegram long polling is the supported home-network mode; only one instance
   may poll a bot. The voice pipeline is designed for LAN Asterisk/FritzBox use.
 

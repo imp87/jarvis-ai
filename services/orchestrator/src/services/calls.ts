@@ -50,7 +50,20 @@ export class CallService {
         blockedReason: decision.reason,
       });
       this.logger.info(
-        { reason: decision.reason, to: maskNumber(request.toNumber), usage },
+        {
+          reason: decision.reason,
+          to: maskNumber(request.toNumber),
+          usage,
+          // Which limits were actually in force, and whether they came from the
+          // database or the environment. Without this, "the limit is 0 but it
+          // says 8" is only answerable by hand.
+          limits: {
+            perHour: policy.maxCallsPerHour,
+            perDay: policy.maxCallsPerDay,
+            quietHours: policy.quietHours,
+          },
+          source: policy.overridden,
+        },
         "outbound call blocked by policy",
       );
       return { placed: false, call, reason: decision.reason };

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { maskPhoneNumber, safeEqual, tryNormalisePhoneNumber, type Logger } from "@jarvis/shared";
 import type { Env } from "./config.js";
 import type { OrchestratorClient } from "./orchestrator.js";
-import type { AudioSocketServer } from "./transports/audiosocket.js";
+import type { PendingCall } from "./transports/audiosocket.js";
 import type { CallOriginator } from "./originate.js";
 
 /** Matches what the orchestrator's CallService already sends. */
@@ -19,12 +19,12 @@ export function createApp(deps: {
   env: Env;
   logger: Logger;
   orchestrator: OrchestratorClient;
-  audioSocket: AudioSocketServer;
+  media: { expect(call: PendingCall): void };
   originator: CallOriginator;
   /** Context for the next outbound call, keyed by the id the orchestrator gave. */
   pendingContext: Map<string, string>;
 }): Express {
-  const { env, logger, orchestrator, audioSocket, originator, pendingContext } = deps;
+  const { env, logger, orchestrator, media, originator, pendingContext } = deps;
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "256kb" }));
@@ -60,7 +60,7 @@ export function createApp(deps: {
       }
 
       const callId = randomUUID();
-      audioSocket.expect({
+      media.expect({
         callId,
         direction: "inbound",
         remoteNumber: number,
@@ -101,7 +101,7 @@ export function createApp(deps: {
     }
 
     const callId = randomUUID();
-    audioSocket.expect({
+    media.expect({
       callId,
       direction: "outbound",
       remoteNumber: number,

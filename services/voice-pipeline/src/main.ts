@@ -9,7 +9,7 @@ const { loadConfig } = await import("./config.js");
 const { createLogger } = await import("@jarvis/shared");
 const { buildSpeech } = await import("@jarvis/speech");
 const { OrchestratorClient } = await import("./orchestrator.js");
-const { AudioSocketServer } = await import("./transports/audiosocket.js");
+const { WebSocketMediaServer } = await import("./transports/websocket-media.js");
 const { CallOriginator } = await import("./originate.js");
 const { CallSession } = await import("./session.js");
 const { createApp } = await import("./app.js");
@@ -34,14 +34,21 @@ const speech = buildSpeech({
         },
       }
     : {}),
-  openai: { apiKey: env.OPENAI_API_KEY },
+  openai: {
+    apiKey: env.OPENAI_API_KEY,
+    ...(env.OPENAI_STT_MODEL ? { sttModel: env.OPENAI_STT_MODEL } : {}),
+    ...(env.OPENAI_STT_PROMPT ? { sttPrompt: env.OPENAI_STT_PROMPT } : {}),
+  },
 });
 
 const orchestrator = new OrchestratorClient(env.ORCHESTRATOR_URL, env.SERVICE_TOKEN, logger);
 /** Why the agent is calling, set when the call is queued and used as its opener. */
 const pendingContext = new Map<string, string>();
 
-const audioSocket = new AudioSocketServer(logger, async (transport, pending) => {
+const handleCall = async (
+  transport: import("./transport.js").CallTransport,
+  pending: import("./transports/audiosocket.js").PendingCall,
+): Promise<void> => {
   const context = pendingContext.get(pending.callId);
   pendingContext.delete(pending.callId);
 
@@ -62,7 +69,7 @@ const audioSocket = new AudioSocketServer(logger, async (transport, pending) => 
     { callId: pending.callId, turns: result.turns, endedBecause: result.endedBecause },
     "call finished",
   );
-});
+};
 
 const originator = new CallOriginator(
   {
@@ -87,23 +94,23 @@ if (env.TTS_ENGINE === "local") {
   if (tts.check) await tts.check();
 }
 
-await audioSocket.listen(env.AUDIOSOCKET_PORT);
-
-const app = createApp({ env, logger, orchestrator, audioSocket, originator, pendingContext });
+const media = new WebSocketMediaServer(env.SERVICE_TOKEN, logger, handleCall);
+const app = createApp({ env, logger, orchestrator, media, originator, pendingContext });
 const server = app.listen(env.VOICE_PIPELINE_PORT, () => {
   logger.info(
-    { http: env.VOICE_PIPELINE_PORT, audioSocket: env.AUDIOSOCKET_PORT },
+    { http: env.VOICE_PIPELINE_PORT, media: "websocket/slin16" },
     "voice pipeline listening",
   );
 });
+media.attach(server);
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, "shutting down");
+  await media.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  await audioSocket.close();
   process.exit(0);
 }
 

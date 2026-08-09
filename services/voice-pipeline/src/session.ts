@@ -1,7 +1,7 @@
 import { convertAudio, type SpeechServices } from "@jarvis/speech";
 import { maskPhoneNumber, type Logger } from "@jarvis/shared";
 import { Endpointer } from "./audio/endpointer.js";
-import { FRAME_BYTES, TELEPHONY_SAMPLE_RATE, toFrames, type CallTransport } from "./transport.js";
+import { frameBytesFor, toFrames, type CallTransport } from "./transport.js";
 import type { OrchestratorClient } from "./orchestrator.js";
 
 export interface SessionOptions {
@@ -56,7 +56,7 @@ export class CallSession {
     private readonly logger: Logger,
     private readonly options: SessionOptions,
   ) {
-    this.endpointer = new Endpointer({ frameMs: 20, sampleRate: TELEPHONY_SAMPLE_RATE });
+    this.endpointer = new Endpointer({ frameMs: 20, sampleRate: transport.sampleRate });
   }
 
   /**
@@ -139,9 +139,10 @@ export class CallSession {
     const started = Date.now();
 
     try {
-      // Whisper needs a container and 16 kHz; the line gives us raw 8 kHz.
+      // STT APIs expect a container. Preserve wideband media (16 kHz) when the
+      // transport provides it; resampling 8 kHz is only the compatibility path.
       const wav = await convertAudio(
-        { data: pcm, encoding: "raw_pcm16", sampleRate: TELEPHONY_SAMPLE_RATE, channels: 1 },
+        { data: pcm, encoding: "raw_pcm16", sampleRate: this.transport.sampleRate, channels: 1 },
         { encoding: "wav_pcm16", sampleRate: 16_000 },
       );
       const heard = await this.speech.stt.transcribe(wav, {
@@ -227,7 +228,7 @@ export class CallSession {
     try {
       const clip = await this.speech.tts.synthesize(text, {
         format: "raw_pcm16",
-        sampleRate: TELEPHONY_SAMPLE_RATE,
+        sampleRate: this.transport.sampleRate,
         ...(this.options.voice ? { voice: this.options.voice } : {}),
         ...(this.options.language ? { language: this.options.language } : {}),
       });
@@ -235,7 +236,7 @@ export class CallSession {
         { callId: this.transport.callId, ttsMs: Date.now() - started, bytes: clip.data.length },
         "reply synthesised",
       );
-      for (const frame of toFrames(clip.data, FRAME_BYTES)) {
+      for (const frame of toFrames(clip.data, frameBytesFor(this.transport.sampleRate))) {
         if (this.finished) break;
         await this.transport.send(frame);
       }

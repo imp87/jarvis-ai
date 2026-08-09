@@ -166,9 +166,20 @@ export function buildBuiltinTools(deps: {
           return { content: `Invalid call request: ${parsed.error.message}`, isError: true };
         }
         const outcome = await deps.calls.requestCall(parsed.data);
-        return outcome.placed
-          ? { content: `Call placed (id ${outcome.call.id}).` }
-          : { content: `Call not placed: ${outcome.reason}`, isError: true };
+        if (outcome.placed) return { content: `Call placed (id ${outcome.call.id}).` };
+        return {
+          // Phrased as a momentary verdict on purpose. The plain form ("daily
+          // call budget exhausted (8/8)") stays in the conversation and reads
+          // like a standing fact, so the model later refuses to place a call it
+          // was never asked to attempt — the budget may have been raised, the
+          // day may have rolled over, or quiet hours may have ended since.
+          content:
+            `Not placed right now: ${outcome.reason}. This was the situation at ` +
+            `${new Date().toISOString()} and can change at any time. Never treat it as a ` +
+            `standing limit or repeat it from an earlier turn — if asked again, call this ` +
+            `tool again and report what it says then.`,
+          isError: true,
+        };
       },
     });
   }

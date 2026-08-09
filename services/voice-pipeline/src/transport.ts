@@ -12,8 +12,10 @@ export interface CallTransport {
   readonly direction: "inbound" | "outbound";
   /** Caller ID for inbound, dialled number for outbound. Null when withheld. */
   readonly remoteNumber: string | null;
+  /** Sample rate of raw PCM frames carried by this transport. */
+  readonly sampleRate: number;
 
-  /** 8 kHz, 16-bit little-endian mono PCM, typically 20 ms per frame. */
+  /** 16-bit little-endian mono PCM, typically 20 ms per frame. */
   onAudio(handler: (frame: Buffer) => void): void;
   onHangup(handler: () => void): void;
 
@@ -30,6 +32,11 @@ export const TELEPHONY_SAMPLE_RATE = 8000;
 export const FRAME_MS = 20;
 /** 160 samples × 2 bytes at 8 kHz. */
 export const FRAME_BYTES = (TELEPHONY_SAMPLE_RATE * FRAME_MS * 2) / 1000;
+
+/** Bytes in one 16-bit mono PCM frame at the requested sample rate. */
+export function frameBytesFor(sampleRate: number, frameMs = FRAME_MS): number {
+  return (sampleRate * frameMs * 2) / 1000;
+}
 
 /** Splits an arbitrary PCM buffer into transport-sized frames. */
 export function toFrames(pcm: Buffer, frameBytes = FRAME_BYTES): Buffer[] {

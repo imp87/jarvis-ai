@@ -144,6 +144,8 @@ services:
       # container is how this broke before. The image ships Piper with matching
       # defaults, so there is nothing to configure here.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_STT_MODEL: ${OPENAI_STT_MODEL:-}
+      OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
     volumes:
       # Whisper weights (~280 MB) — without this every restart re-downloads them.
       - speech-models:/models
@@ -161,7 +163,6 @@ services:
     environment:
       NODE_ENV: production
       VOICE_PIPELINE_PORT: 8082
-      AUDIOSOCKET_PORT: 8090
       ORCHESTRATOR_URL: http://orchestrator:8080
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       SIP_CALLER_ID: ${SIP_CALLER_ID:-}
@@ -173,19 +174,20 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-Xenova/whisper-base}
       WHISPER_CACHE_DIR: /models/whisper
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_STT_MODEL: ${OPENAI_STT_MODEL:-}
+      OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
     volumes:
       - speech-models:/models
       # Shared with Asterisk: the pipeline writes call files, Asterisk dials them.
       - asterisk-spool:/var/spool/asterisk
     ports:
       # Published on loopback so Asterisk can reach them when it runs with host
-      # networking (see below). Nothing else should be able to.
+      # networking (see below). Asterisk's per-call media WebSocket is served
+      # on this same HTTP port; nothing else should be able to reach it.
       #
-      # These two are the one host-side mapping that is not cosmetic: the
-      # asterisk service below dials back in through them, so the defaults there
-      # must track any change made here.
+      # The HTTP mapping is the one host-side mapping that is not cosmetic:
+      # Asterisk dials back to it for authorisation and the media WebSocket.
       - "127.0.0.1:${VOICE_PIPELINE_HOST_PORT:-18782}:8082"
-      - "127.0.0.1:${AUDIOSOCKET_HOST_PORT:-18790}:8090"
 
   asterisk:
     build:
@@ -208,7 +210,7 @@ services:
       SIP_PASSWORD: ${SIP_PASSWORD:-}
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       PIPELINE_HTTP: http://127.0.0.1:${VOICE_PIPELINE_HOST_PORT:-18782}
-      PIPELINE_AUDIO: 127.0.0.1:${AUDIOSOCKET_HOST_PORT:-18790}
+      PIPELINE_MEDIA_HOST: 127.0.0.1:${VOICE_PIPELINE_HOST_PORT:-18782}
     volumes:
       - asterisk-spool:/var/spool/asterisk
 
