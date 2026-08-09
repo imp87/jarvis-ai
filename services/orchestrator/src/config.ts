@@ -20,7 +20,29 @@ export const envSchema = baseEnvSchema.extend({
   VOICE_PIPELINE_URL: z.string().url().optional(),
   /** Public origin of the admin app, used as the deployed OAuth callback default. */
   MCP_OAUTH_CALLBACK_BASE_URL: z.string().url().default("https://jarvis.steven-dautrich.de"),
-});
+
+  /**
+   * Backend for the embedded `web` MCP server. DuckDuckGo's HTML endpoint is
+   * the default because it needs no account, so web search works on a fresh
+   * install; it is a scrape, so switch providers if it ever stops returning
+   * results.
+   */
+  WEB_SEARCH_PROVIDER: z.enum(["duckduckgo", "brave", "searxng"]).default("duckduckgo"),
+  BRAVE_SEARCH_API_KEY: z.string().optional(),
+  /** Base URL of a self-hosted SearXNG instance, e.g. http://searxng:8080. */
+  SEARXNG_URL: z.string().url().optional(),
+  WEB_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** Ceiling on a downloaded body before text extraction. */
+  WEB_FETCH_MAX_BYTES: z.coerce.number().int().positive().default(2_000_000),
+})
+  .refine((v) => v.WEB_SEARCH_PROVIDER !== "brave" || Boolean(v.BRAVE_SEARCH_API_KEY), {
+    message: "WEB_SEARCH_PROVIDER=brave requires BRAVE_SEARCH_API_KEY",
+    path: ["BRAVE_SEARCH_API_KEY"],
+  })
+  .refine((v) => v.WEB_SEARCH_PROVIDER !== "searxng" || Boolean(v.SEARXNG_URL), {
+    message: "WEB_SEARCH_PROVIDER=searxng requires SEARXNG_URL",
+    path: ["SEARXNG_URL"],
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

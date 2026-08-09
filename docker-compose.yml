@@ -64,6 +64,13 @@ services:
       # paths. Registry rows store ${MCP_WORKSPACE_DIR} rather than a literal
       # path, which is what lets one row work on a dev host and here.
       MCP_WORKSPACE_DIR: /workspace
+      # Embedded "web" MCP server. The default provider needs no key, so search
+      # and page reading work without any further configuration.
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-duckduckgo}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      WEB_REQUEST_TIMEOUT_MS: ${WEB_REQUEST_TIMEOUT_MS:-15000}
+      WEB_FETCH_MAX_BYTES: ${WEB_FETCH_MAX_BYTES:-2000000}
     volumes:
       - ${MCP_WORKSPACE_HOST_DIR:-./.local/workspace}:/workspace
     ports:

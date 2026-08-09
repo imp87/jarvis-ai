@@ -77,6 +77,21 @@ curl -X POST localhost:18780/v1/actions/agent \
   -d "{\"userId\":\"$USER_ID\",\"text\":\"What can you do?\"}"
 ```
 
+### Web access
+
+The agent carries a built-in `web` MCP server — `mcp_web__search` and
+`mcp_web__read` — so anything current (weather, news, prices, opening hours)
+comes from the live internet rather than from training data. It works with no
+configuration: `WEB_SEARCH_PROVIDER` defaults to DuckDuckGo's keyless HTML
+endpoint. Set it to `brave` (`BRAVE_SEARCH_API_KEY`) or `searxng`
+(`SEARXNG_URL`) for a real API or your own instance.
+
+Both tools refuse URLs that resolve into the private network, and re-check
+after every redirect. That is not decoration: the model picks these URLs out of
+search results and page text, so without it a stranger's web page could steer
+the agent into Postgres, the admin UI or the cloud metadata endpoint. Fetched
+content is labelled as untrusted data before the model sees it.
+
 ---
 
 ## Layout

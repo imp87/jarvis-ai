@@ -26,6 +26,7 @@ import { TaskService } from "./services/tasks.js";
 import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
 import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
+import { buildEmbeddedWebTools } from "./agent/tools/web.js";
 import { ImapService } from "./services/imap.js";
 import { MailDeliveryService } from "./services/mail-delivery.js";
 import { SmtpService } from "./services/smtp.js";
@@ -137,6 +138,26 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     name: "imap",
     description: "Your locally mirrored IMAP mail. Read-only; it never sends or changes mail.",
     tools: buildEmbeddedImapTools(repos.emails, smtp),
+  });
+  // Live web access. Embedded rather than a registry row: with the default
+  // provider it needs no credentials, so "what is the weather" works without
+  // attaching anything first.
+  mcp.registerEmbeddedServer({
+    name: "web",
+    description:
+      "The public internet: a search engine and a page reader. This is where anything current " +
+      "comes from — weather, news, prices, opening hours, timetables, documentation.",
+    tools: buildEmbeddedWebTools({
+      provider: env.WEB_SEARCH_PROVIDER,
+      braveApiKey: env.BRAVE_SEARCH_API_KEY,
+      searxngUrl: env.SEARXNG_URL,
+      timeoutMs: env.WEB_REQUEST_TIMEOUT_MS,
+      maxBytes: env.WEB_FETCH_MAX_BYTES,
+      // Leaves room for the tool's own header inside MAX_TOOL_RESULT_CHARS, so
+      // a page is cut with an explanation rather than by the registry's clamp.
+      maxTextChars: Math.max(500, env.MAX_TOOL_RESULT_CHARS - 1_000),
+      logger,
+    }),
   });
 
   const notifications = new NotificationService(
