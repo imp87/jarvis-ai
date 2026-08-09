@@ -172,7 +172,9 @@ export class RealtimeCallSession {
       response: {
         modalities: ["audio"],
         tool_choice: "none",
-        instructions: `Say exactly this greeting, then wait for the caller: ${this.options.greeting}`,
+        instructions:
+          "Speak the following German text verbatim. Do not translate it, paraphrase it, add a " +
+          `generic question, or call a tool: ${JSON.stringify(this.options.greeting)}`,
       },
     });
   }

@@ -171,7 +171,9 @@ export function buildBuiltinTools(deps: {
           context: {
             type: "string",
             description:
-              "What to say. The voice agent opens the conversation with this as its briefing.",
+              "Exact German first sentence for the recipient. State the reason or reminder itself, " +
+              "for example: 'Master, Erinnerung: Sie wollten jetzt den Müll rausbringen.' Never " +
+              "use a generic greeting or ask what they need; this is an outbound call.",
           },
         },
         required: ["reason", "context"],

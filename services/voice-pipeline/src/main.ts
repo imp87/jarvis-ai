@@ -54,9 +54,12 @@ const handleCall = async (
   const context = pendingContext.get(pending.callId);
   pendingContext.delete(pending.callId);
 
+  // An outbound call exists for a concrete reason. Never begin it with the
+  // inbound "what can I do for you?" question: that makes a reminder call
+  // sound like the recipient initiated it and can bury the actual reminder.
   const greeting =
-    pending.direction === "outbound" && context
-      ? `Hallo, hier ist Jarvis. ${context}`
+    pending.direction === "outbound"
+      ? context?.trim() || "Master, Jarvis hier. Ich habe eine Erinnerung für Sie."
       : env.VOICE_GREETING;
 
   logger.info({ callId: pending.callId, direction: pending.direction, mode: env.VOICE_MODE }, "call connected");

@@ -191,7 +191,9 @@ export class TaskRunner {
 
     const result = await this.agent.run({
       userId: task.userId,
-      ownerName: "the owner",
+      // Scheduled work can place a call. Keep the same owner form of address
+      // as the live voice channel so the generated call context is consistent.
+      ownerName: "Master",
       conversationId,
       channel: task.channel as ChannelName,
       text: task.prompt,

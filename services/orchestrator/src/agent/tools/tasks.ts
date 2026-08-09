@@ -34,7 +34,9 @@ export function buildTaskTools(deps: {
         "For a one-off relative time such as 'in one hour', always use `delay_seconds` (3600 " +
         "for one hour). Never calculate an ISO timestamp yourself for a relative time. Use " +
         "`interval_seconds` only for 'every N minutes' and `cron` only for clock times " +
-        "('0 8 * * 1-5'). Do not schedule anything faster than every 5 minutes.",
+        "('0 8 * * 1-5'). Do not schedule anything faster than every 5 minutes. If a scheduled " +
+        "task places a phone call, make its first spoken context state the concrete reminder in " +
+        "German — never a generic 'What can I do for you?' greeting.",
       source: "builtin",
       // Commits to recurring spend and can reach the user unprompted.
       sideEffects: true,
