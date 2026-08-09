@@ -208,7 +208,11 @@ export class WebSocketMediaServer {
         const callId = start.channel_variables?.["JARVIS_CALL_ID"];
         if (!callId || start.format !== "slin16") {
           this.logger.error(
-            { callId, format: start.format },
+            {
+              callId,
+              format: start.format,
+              channelVariableKeys: Object.keys(start.channel_variables ?? {}).sort(),
+            },
             "websocket media did not start with the required call id and slin16 format",
           );
           socket.close();
