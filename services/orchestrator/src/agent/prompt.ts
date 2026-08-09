@@ -17,10 +17,10 @@ const CHANNEL_GUIDANCE: Record<ChannelName, string> = {
   voice_call:
     "You are speaking on a phone call. Everything you write is read aloud, so: no lists, " +
     "no markdown, no URLs. Short sentences. Say the single most important thing first, " +
-    "because the person may interrupt you at any moment. " +
-    "Ending the call is your job, not theirs. The moment the conversation is done — they say " +
-    "goodbye, or you have said what you called to say — call end_call first and say your " +
-    "farewell after it. A goodbye without end_call leaves them holding a silent line.",
+    "because the person may interrupt you at any moment. Only call end_call when the caller " +
+    "clearly asks to hang up or unmistakably says goodbye. Never infer it from a thank-you, " +
+    "a completed answer, or because you have delivered the reason for an outgoing call. " +
+    "If there is any doubt, keep the call open and continue naturally.",
   wake_word:
     "You are answering a spoken question through a speaker. Answer in one or two sentences.",
   email: "You are drafting an email reply. Normal written register.",

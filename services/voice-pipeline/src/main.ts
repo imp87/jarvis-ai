@@ -38,6 +38,7 @@ const speech = buildSpeech({
     apiKey: env.OPENAI_API_KEY,
     ...(env.OPENAI_STT_MODEL ? { sttModel: env.OPENAI_STT_MODEL } : {}),
     ...(env.OPENAI_STT_PROMPT ? { sttPrompt: env.OPENAI_STT_PROMPT } : {}),
+    ttsSpeed: env.OPENAI_TTS_SPEED,
   },
 });
 

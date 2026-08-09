@@ -146,6 +146,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_STT_MODEL: ${OPENAI_STT_MODEL:-}
       OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
+      OPENAI_TTS_SPEED: ${OPENAI_TTS_SPEED:-1.15}
     volumes:
       # Whisper weights (~280 MB) — without this every restart re-downloads them.
       - speech-models:/models
@@ -176,6 +177,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_STT_MODEL: ${OPENAI_STT_MODEL:-}
       OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
+      OPENAI_TTS_SPEED: ${OPENAI_TTS_SPEED:-1.15}
     volumes:
       - speech-models:/models
       # Shared with Asterisk: the pipeline writes call files, Asterisk dials them.

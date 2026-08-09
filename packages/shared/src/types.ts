@@ -98,6 +98,8 @@ export interface ToolContext {
   userId: string;
   /** Set when the call originated from a channel adapter. */
   channel?: ChannelName;
+  /** The user's current utterance, for tools that require explicit consent. */
+  lastUserText?: string;
   /** Where a tool records a request for the caller of the turn. See `TurnSignals`. */
   signals?: TurnSignals;
 }

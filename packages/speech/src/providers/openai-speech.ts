@@ -25,6 +25,8 @@ export interface OpenAiSpeechOptions {
   sttModel?: string;
   sttPrompt?: string;
   ttsModel?: string;
+  /** 0.25 to 4.0; OpenAI's default is 1.0. */
+  ttsSpeed?: number;
   defaultVoice?: string;
   timeoutMs?: number;
 }
@@ -127,6 +129,7 @@ export class OpenAiTts implements TtsProvider {
         input: trimmed,
         voice: options.voice ?? this.options.defaultVoice ?? "alloy",
         response_format: responseFormat,
+        ...(this.options.ttsSpeed !== undefined ? { speed: this.options.ttsSpeed } : {}),
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     }).catch((err: unknown) => {

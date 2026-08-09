@@ -2,6 +2,23 @@ import { callRequestSchema, type ExecutableTool, type ToolResult } from "@jarvis
 import type { MemoryService } from "../../services/memory.js";
 import type { CallService } from "../../services/calls.js";
 
+/** End a call only on an unambiguous, affirmative signal from the caller. */
+export function isExplicitHangupRequest(value: string): boolean {
+  const text = value.toLocaleLowerCase("de-DE").replace(/[^\p{L}\p{N}\s]/gu, " ");
+  if (
+    /\b(?:nicht|kein(?:en|e|er|es)?|niemals|nie|bloß nicht|auf keinen fall)\b[\s\S]{0,40}\b(?:aufleg\w*|beend\w*|schluss\s+mach\w*)\b/u.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return [
+    /\b(?:leg(?:e|t)?\s+(?:bitte\s+)?auf|aufleg\w*)\b/u,
+    /\b(?:beend(?:e|et)?\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch)|beend\w*\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch))\b/u,
+    /\b(?:tschüss|tschuess|auf\s+wiedersehen|bis\s+bald)\b/u,
+  ].some((pattern) => pattern.test(text));
+}
+
 /**
  * Tools the orchestrator implements itself. Everything else reaches the agent
  * through MCP or the connector registry.
@@ -81,15 +98,12 @@ export function buildBuiltinTools(deps: {
     {
       name: "end_call",
       description:
-        "Hang up the phone call you are on. Use it as soon as the conversation is finished — " +
-        "the other person has said goodbye, you have delivered what you called about, or they " +
-        "ask you to hang up.\n\n" +
+        "Hang up the phone call only when the caller explicitly asks to hang up or clearly says " +
+        "goodbye. A thank-you, a completed answer, or delivering an outgoing-call message is " +
+        "NOT permission to end the call. When unsure, do not call this tool.\n\n" +
         "Call this BEFORE your closing words, not after. Nothing is cut off: the tool returns, " +
         "you then say your goodbye as normal, it is spoken in full, and the line closes after " +
-        "it. Saying goodbye without calling this leaves the other person listening to silence " +
-        "until the call times out.\n\n" +
-        "Do not call it while anything is still unresolved — there is no way to call back into " +
-        "the same conversation.",
+        "it.",
       source: "builtin",
       // Ends a live call. Irreversible for that conversation.
       sideEffects: true,
@@ -111,6 +125,14 @@ export function buildBuiltinTools(deps: {
           // UI's dry run, for instance. Better to say so than to claim success.
           return {
             content: "There is no call to end in this context.",
+            isError: true,
+          };
+        }
+        if (!isExplicitHangupRequest(ctx.lastUserText ?? "")) {
+          return {
+            content:
+              "The caller has not explicitly asked to end the call. Keep it open and respond " +
+              "normally; do not try end_call again unless they clearly say goodbye or ask to hang up.",
             isError: true,
           };
         }
@@ -137,6 +159,8 @@ export function buildBuiltinTools(deps: {
       source: "builtin",
       // Costs money, rings a phone, wakes a human.
       sideEffects: true,
+      // Calling from an active call can create an infinite call-back loop.
+      channels: ["telegram", "discord", "email", "api"],
       inputSchema: {
         type: "object",
         properties: {

@@ -40,6 +40,8 @@ export const envSchema = z
     OPENAI_STT_MODEL: z.string().optional(),
     /** German context and product names guide transcription without changing audio. */
     OPENAI_STT_PROMPT: z.string().max(2_000).optional(),
+    /** Slightly brisker than the API default, which feels slow on a phone call. */
+    OPENAI_TTS_SPEED: z.coerce.number().min(0.25).max(4).default(1.15),
   })
   .refine((v) => v.TTS_ENGINE !== "local" || (Boolean(v.PIPER_BINARY) && Boolean(v.PIPER_MODEL)), {
     message: "local TTS needs PIPER_BINARY and PIPER_MODEL, or set TTS_ENGINE=openai",

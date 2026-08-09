@@ -204,6 +204,7 @@ export class AgentLoop {
             conversationId,
             userId,
             channel,
+            lastUserText: input.text,
             signals,
           });
           return { call, result };
