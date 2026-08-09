@@ -13,6 +13,11 @@ export async function middleware(request: NextRequest) {
     request.cookies.get(SESSION_COOKIE)?.value,
   ).catch(() => false);
 
+  // The OAuth provider returns here after an operator-approved flow. The
+  // one-time PKCE state is verified by the orchestrator, so it must remain
+  // reachable even if the admin session expired during a long provider login.
+  if (pathname === "/oauth/mcp/callback") return NextResponse.next();
+
   if (pathname === "/login") {
     if (authenticated) return NextResponse.redirect(new URL("/", request.url));
     return NextResponse.next();

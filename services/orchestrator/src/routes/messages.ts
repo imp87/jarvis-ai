@@ -40,7 +40,7 @@ export function messageRoutes(container: Container): Router {
 
       const conversation = input.conversationId
         ? await repos.conversations.findById(input.conversationId, user.id)
-        : await repos.conversations.findOrCreateActive(user.id);
+        : await repos.conversations.findOrCreateInteractive(user.id);
       if (!conversation) throw new NotFoundError("conversation not found");
 
       const settings = await repos.settings.get(user.id, input.channel);

@@ -36,7 +36,26 @@ export interface McpServerRow {
   command: string | null;
   args: string[];
   secretsEnc: string | null;
+  authMode: "static" | "oauth";
+  oauthConfigEnc: string | null;
+  oauthTokensEnc: string | null;
+  oauthStatus: "not_connected" | "pending" | "connected" | "error";
+  oauthError: string | null;
+  oauthConnectedAt: Date | null;
   enabled: boolean;
+}
+
+export interface McpOAuthSessionRow {
+  state: string;
+  mcpServerId: string;
+  codeVerifierEnc: string;
+  authorizationServer: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  clientId: string;
+  clientSecretEnc: string | null;
+  redirectUri: string;
+  resourceUri: string;
 }
 
 export class RegistryRepository {
@@ -188,7 +207,9 @@ export class RegistryRepository {
 
   async listMcpServers(onlyEnabled = false): Promise<McpServerRow[]> {
     const { rows } = await this.pool.query(
-      `SELECT id, name, description, transport, url, command, args, secrets_enc, enabled
+      `SELECT id, name, description, transport, url, command, args, secrets_enc,
+              auth_mode, oauth_config_enc, oauth_tokens_enc, oauth_status, oauth_error,
+              oauth_connected_at, enabled
          FROM mcp_servers
         WHERE ($1::boolean = false OR enabled = true)
         ORDER BY name`,
@@ -205,11 +226,16 @@ export class RegistryRepository {
     command?: string | null;
     args?: string[];
     secretsEnc?: string | null;
+    authMode?: "static" | "oauth";
+    oauthConfigEnc?: string | null;
   }): Promise<McpServerRow> {
     const { rows } = await this.pool.query(
-      `INSERT INTO mcp_servers (name, description, transport, url, command, args, secrets_enc)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-       RETURNING id, name, description, transport, url, command, args, secrets_enc, enabled`,
+      `INSERT INTO mcp_servers
+         (name, description, transport, url, command, args, secrets_enc, auth_mode, oauth_config_enc)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+       RETURNING id, name, description, transport, url, command, args, secrets_enc,
+                 auth_mode, oauth_config_enc, oauth_tokens_enc, oauth_status, oauth_error,
+                 oauth_connected_at, enabled`,
       [
         input.name,
         input.description ?? "",
@@ -218,6 +244,8 @@ export class RegistryRepository {
         input.command ?? null,
         JSON.stringify(input.args ?? []),
         input.secretsEnc ?? null,
+        input.authMode ?? "static",
+        input.oauthConfigEnc ?? null,
       ],
     );
     return mapMcpServer(rows[0] as Record<string, unknown>);
@@ -225,7 +253,9 @@ export class RegistryRepository {
 
   async getMcpServer(id: string): Promise<McpServerRow | null> {
     const { rows } = await this.pool.query(
-      `SELECT id, name, description, transport, url, command, args, secrets_enc, enabled
+      `SELECT id, name, description, transport, url, command, args, secrets_enc,
+              auth_mode, oauth_config_enc, oauth_tokens_enc, oauth_status, oauth_error,
+              oauth_connected_at, enabled
          FROM mcp_servers WHERE id = $1`,
       [id],
     );
@@ -251,6 +281,8 @@ export class RegistryRepository {
       command?: string | null;
       args?: string[];
       secretsEnc?: string | null;
+      authMode?: "static" | "oauth";
+      oauthConfigEnc?: string | null;
     },
   ): Promise<McpServerRow | null> {
     const { rows } = await this.pool.query(
@@ -259,9 +291,13 @@ export class RegistryRepository {
          url         = CASE WHEN $3::boolean THEN $4 ELSE url END,
          command     = CASE WHEN $5::boolean THEN $6 ELSE command END,
          args        = COALESCE($7::jsonb, args),
-         secrets_enc = CASE WHEN $8::boolean THEN $9 ELSE secrets_enc END
+         secrets_enc = CASE WHEN $8::boolean THEN $9 ELSE secrets_enc END,
+         auth_mode   = COALESCE($10, auth_mode),
+         oauth_config_enc = CASE WHEN $11::boolean THEN $12 ELSE oauth_config_enc END
        WHERE id = $1
-       RETURNING id, name, description, transport, url, command, args, secrets_enc, enabled`,
+       RETURNING id, name, description, transport, url, command, args, secrets_enc,
+                 auth_mode, oauth_config_enc, oauth_tokens_enc, oauth_status, oauth_error,
+                 oauth_connected_at, enabled`,
       [
         id,
         patch.description ?? null,
@@ -272,6 +308,9 @@ export class RegistryRepository {
         patch.args ? JSON.stringify(patch.args) : null,
         patch.secretsEnc !== undefined,
         patch.secretsEnc ?? null,
+        patch.authMode ?? null,
+        patch.oauthConfigEnc !== undefined,
+        patch.oauthConfigEnc ?? null,
       ],
     );
     const row = rows[0] as Record<string, unknown> | undefined;
@@ -281,6 +320,48 @@ export class RegistryRepository {
   async deleteMcpServer(id: string): Promise<boolean> {
     const result = await this.pool.query(`DELETE FROM mcp_servers WHERE id = $1`, [id]);
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async setMcpOAuthState(
+    id: string,
+    patch: {
+      tokensEnc?: string | null;
+      status: "not_connected" | "pending" | "connected" | "error";
+      error?: string | null;
+      connectedAt?: Date | null;
+    },
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE mcp_servers SET oauth_tokens_enc = CASE WHEN $2::boolean THEN $3 ELSE oauth_tokens_enc END,
+           oauth_status = $4, oauth_error = $5, oauth_connected_at = $6, updated_at = now()
+       WHERE id = $1`,
+      [id, patch.tokensEnc !== undefined, patch.tokensEnc ?? null, patch.status, patch.error ?? null, patch.connectedAt ?? null],
+    );
+  }
+
+  async createMcpOAuthSession(input: McpOAuthSessionRow & { expiresAt: Date }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO mcp_oauth_sessions
+         (state, mcp_server_id, code_verifier_enc, authorization_server, authorization_endpoint,
+          token_endpoint, client_id, client_secret_enc, redirect_uri, resource_uri, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [input.state, input.mcpServerId, input.codeVerifierEnc, input.authorizationServer,
+       input.authorizationEndpoint, input.tokenEndpoint, input.clientId, input.clientSecretEnc,
+       input.redirectUri, input.resourceUri, input.expiresAt],
+    );
+  }
+
+  async consumeMcpOAuthSession(state: string): Promise<McpOAuthSessionRow | null> {
+    const { rows } = await this.pool.query(
+      `UPDATE mcp_oauth_sessions SET used_at = now()
+       WHERE state = $1 AND used_at IS NULL AND expires_at > now()
+       RETURNING state, mcp_server_id, code_verifier_enc, authorization_server,
+                 authorization_endpoint, token_endpoint, client_id, client_secret_enc,
+                 redirect_uri, resource_uri`,
+      [state],
+    );
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row ? mapMcpOAuthSession(row) : null;
   }
 
   // --- Audit ---------------------------------------------------------------
@@ -348,6 +429,29 @@ function mapMcpServer(r: Record<string, unknown>): McpServerRow {
     command: (r["command"] as string | null) ?? null,
     args: (r["args"] as string[]) ?? [],
     secretsEnc: (r["secrets_enc"] as string | null) ?? null,
+    authMode: (r["auth_mode"] as "static" | "oauth" | undefined) ?? "static",
+    oauthConfigEnc: (r["oauth_config_enc"] as string | null) ?? null,
+    oauthTokensEnc: (r["oauth_tokens_enc"] as string | null) ?? null,
+    oauthStatus:
+      (r["oauth_status"] as "not_connected" | "pending" | "connected" | "error" | undefined) ??
+      "not_connected",
+    oauthError: (r["oauth_error"] as string | null) ?? null,
+    oauthConnectedAt: (r["oauth_connected_at"] as Date | null) ?? null,
     enabled: r["enabled"] as boolean,
+  };
+}
+
+function mapMcpOAuthSession(r: Record<string, unknown>): McpOAuthSessionRow {
+  return {
+    state: r["state"] as string,
+    mcpServerId: r["mcp_server_id"] as string,
+    codeVerifierEnc: r["code_verifier_enc"] as string,
+    authorizationServer: r["authorization_server"] as string,
+    authorizationEndpoint: r["authorization_endpoint"] as string,
+    tokenEndpoint: r["token_endpoint"] as string,
+    clientId: r["client_id"] as string,
+    clientSecretEnc: (r["client_secret_enc"] as string | null) ?? null,
+    redirectUri: r["redirect_uri"] as string,
+    resourceUri: r["resource_uri"] as string,
   };
 }

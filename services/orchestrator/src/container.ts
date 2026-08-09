@@ -29,6 +29,7 @@ import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
 import { ImapService } from "./services/imap.js";
 import { MailDeliveryService } from "./services/mail-delivery.js";
 import { SmtpService } from "./services/smtp.js";
+import { McpOAuthService } from "./services/mcp-oauth.js";
 
 export interface Container {
   config: AppConfig;
@@ -47,6 +48,7 @@ export interface Container {
   };
   router: LlmRouter;
   mcp: McpManager;
+  mcpOauth: McpOAuthService;
   tools: ToolRegistry;
   memory: MemoryService;
   calls: CallService;
@@ -120,8 +122,15 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
   );
 
   const mcp = new McpManager(logger);
+  const mcpOauth = new McpOAuthService(
+    repos.registry,
+    repos.settings,
+    masterKey,
+    logger,
+    env.MCP_OAUTH_CALLBACK_BASE_URL,
+  );
   const smtp = new SmtpService(repos.emails, masterKey, logger);
-  await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger);
+  await connectRegisteredMcpServers(mcp, repos.registry, masterKey, logger, mcpOauth);
   // IMAP accounts are created in the admin UI. The MCP tools are available
   // even before the first account exists, so adding an account needs no restart.
   mcp.registerEmbeddedServer({
@@ -194,6 +203,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     repos,
     router,
     mcp,
+    mcpOauth,
     tools,
     memory,
     calls,
@@ -216,11 +226,12 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
 }
 
 /** Turns a stored registry row into a connectable config, decrypting secrets. */
-export function toMcpServerConfig(
+export async function toMcpServerConfig(
   row: McpServerRow,
   masterKey: Buffer,
   logger: Logger,
-): McpServerConfig {
+  mcpOauth?: McpOAuthService,
+): Promise<McpServerConfig> {
   let secrets: Record<string, string> | undefined;
   if (row.secretsEnc) {
     try {
@@ -231,6 +242,10 @@ export function toMcpServerConfig(
         "could not decrypt MCP secrets; connecting without them",
       );
     }
+  }
+  if (row.authMode === "oauth") {
+    if (!mcpOauth) throw new Error(`MCP server ${row.name} uses OAuth but the OAuth service is unavailable.`);
+    secrets = { ...secrets, ...(await mcpOauth.headersFor(row)) };
   }
   return {
     name: row.name,
@@ -249,7 +264,16 @@ export async function connectRegisteredMcpServers(
   registry: RegistryRepository,
   masterKey: Buffer,
   logger: Logger,
+  mcpOauth?: McpOAuthService,
 ): Promise<void> {
   const rows = await registry.listMcpServers(true);
-  await mcp.connectAll(rows.map((row) => toMcpServerConfig(row, masterKey, logger)));
+  const settled = await Promise.allSettled(
+    rows.map((row) => toMcpServerConfig(row, masterKey, logger, mcpOauth)),
+  );
+  const configs: McpServerConfig[] = [];
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") configs.push(result.value);
+    else logger.warn({ server: rows[index]?.name, err: String(result.reason) }, "MCP server not connected");
+  });
+  await mcp.connectAll(configs);
 }

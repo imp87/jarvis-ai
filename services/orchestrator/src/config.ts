@@ -18,6 +18,8 @@ export const envSchema = baseEnvSchema.extend({
   OWNER_PHONE_NUMBER: z.string().optional(),
   /** Voice pipeline endpoint. Absent until component 1 exists. */
   VOICE_PIPELINE_URL: z.string().url().optional(),
+  /** Public origin of the admin app, used as the deployed OAuth callback default. */
+  MCP_OAUTH_CALLBACK_BASE_URL: z.string().url().default("https://jarvis.steven-dautrich.de"),
 });
 
 export type Env = z.infer<typeof envSchema>;

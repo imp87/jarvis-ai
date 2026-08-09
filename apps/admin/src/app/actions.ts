@@ -166,8 +166,10 @@ function parseArgs(raw: string): string[] {
 export async function createMcpServer(raw: McpServerInput): Promise<ActionResult> {
   return attempt("Server registered.", async () => {
     const input = mcpServerSchema.parse(raw);
-    const secrets =
-      input.transport === "http" ? authToHeaders(input.auth) : parseEnvLines(input.env);
+    const secrets = input.transport === "http"
+      ? (input.authMode === "static" ? authToHeaders(input.auth) : undefined)
+      : parseEnvLines(input.env);
+    const oauth = oauthConfigFromInput(input);
 
     const result = await api.post<{ name: string; connected: boolean; connectError?: string }>(
       "/v1/mcp/servers",
@@ -179,6 +181,8 @@ export async function createMcpServer(raw: McpServerInput): Promise<ActionResult
           ? { url: input.url }
           : { command: input.command, args: parseArgs(input.args) }),
         ...(secrets ? { secrets } : {}),
+        authMode: input.authMode,
+        ...(oauth ? { oauth } : {}),
       },
     );
     revalidatePath("/mcp");
@@ -202,12 +206,14 @@ export async function createMcpServer(raw: McpServerInput): Promise<ActionResult
 export async function updateMcpServer(
   id: string,
   raw: McpServerInput,
-  options: { replaceSecret: boolean },
+  options: { replaceSecret: boolean; replaceOAuth: boolean },
 ): Promise<ActionResult> {
   return attempt("Server updated.", async () => {
     const input = mcpServerSchema.parse(raw);
-    const secrets =
-      input.transport === "http" ? authToHeaders(input.auth) : parseEnvLines(input.env);
+    const secrets = input.transport === "http"
+      ? (input.authMode === "static" ? authToHeaders(input.auth) : undefined)
+      : parseEnvLines(input.env);
+    const oauth = oauthConfigFromInput(input);
 
     const result = await api.patch<{ connected: boolean; connectError?: string }>(
       `/v1/mcp/servers/${z.string().uuid().parse(id)}`,
@@ -217,6 +223,8 @@ export async function updateMcpServer(
           ? { url: input.url }
           : { command: input.command, args: parseArgs(input.args) }),
         ...(options.replaceSecret ? { secrets: secrets ?? null } : {}),
+        authMode: input.authMode,
+        ...(options.replaceOAuth ? { oauth: oauth ?? {} } : {}),
       },
     );
     revalidatePath("/mcp");
@@ -225,6 +233,18 @@ export async function updateMcpServer(
       ? ok(`${input.name} reconnected — its tools are available.`)
       : warn(`Saved, but connecting still fails: ${result.connectError ?? "unknown error"}`);
   });
+}
+
+function oauthConfigFromInput(input: McpServerInput):
+  | { clientId?: string; clientSecret?: string; scope?: string }
+  | undefined {
+  if (input.authMode !== "oauth") return undefined;
+  const config = {
+    ...(input.oauth.clientId.trim() ? { clientId: input.oauth.clientId.trim() } : {}),
+    ...(input.oauth.clientSecret ? { clientSecret: input.oauth.clientSecret } : {}),
+    ...(input.oauth.scope.trim() ? { scope: input.oauth.scope.trim() } : {}),
+  };
+  return Object.keys(config).length > 0 ? config : undefined;
 }
 
 export async function setMcpServerEnabled(id: string, enabled: boolean): Promise<ActionResult> {
@@ -259,6 +279,30 @@ export async function reloadMcpServers(): Promise<ActionResult> {
     revalidatePath("/");
     const tools = result.servers.reduce((sum, s) => sum + s.toolCount, 0);
     return ok(`${result.servers.length} server(s) connected, ${tools} tool(s) available.`);
+  });
+}
+
+export async function startMcpOAuth(
+  id: string,
+): Promise<ActionResult & { authorizationUrl?: string }> {
+  try {
+    const result = await api.post<{ authorizationUrl: string }>(
+      `/v1/mcp/servers/${z.string().uuid().parse(id)}/oauth/start`,
+    );
+    return { status: "success", message: "Opening provider sign-in…", authorizationUrl: result.authorizationUrl };
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function updateMcpOAuthCallbackBaseUrl(
+  callbackBaseUrl: string | null,
+): Promise<ActionResult> {
+  return attempt("OAuth callback URL saved.", async () => {
+    const parsed = callbackBaseUrl === null ? null : z.string().url().parse(callbackBaseUrl.trim());
+    await api.put("/v1/mcp/oauth/settings", { callbackBaseUrl: parsed });
+    revalidatePath("/mcp");
+    return ok("OAuth callback URL saved.");
   });
 }
 

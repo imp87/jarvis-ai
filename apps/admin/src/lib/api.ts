@@ -94,12 +94,23 @@ export interface McpServer {
   command: string | null;
   args: string[];
   hasSecrets: boolean;
+  authMode: "static" | "oauth";
+  oauthStatus: "not_connected" | "pending" | "connected" | "error";
+  oauthError: string | null;
+  oauthConnectedAt: string | null;
+  hasOAuthClient: boolean;
   enabled: boolean;
   connected: boolean;
   toolCount: number;
   toolNames: string[];
   lastError: string | null;
   lastErrorAt: string | null;
+}
+
+export interface McpOAuthSettings {
+  callbackBaseUrl: string;
+  callbackUrl: string;
+  overridden: boolean;
 }
 
 export interface ImapAccount {
@@ -244,6 +255,7 @@ export interface TaskRun {
 }
 
 export const getMcpServers = () => api.get<{ servers: McpServer[] }>("/v1/mcp/servers");
+export const getMcpOAuthSettings = () => api.get<McpOAuthSettings>("/v1/mcp/oauth/settings");
 export const getTasks = () => api.get<{ tasks: Task[] }>("/v1/tasks");
 export const getTaskRuns = (id: string) =>
   api.get<{ runs: TaskRun[] }>(`/v1/tasks/${id}/runs?limit=20`);

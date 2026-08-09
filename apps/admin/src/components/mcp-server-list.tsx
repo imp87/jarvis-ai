@@ -16,6 +16,8 @@ import {
   Textarea,
   TextInput,
   Tooltip,
+  PasswordInput,
+  SegmentedControl,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -23,6 +25,7 @@ import {
   deleteMcpServer,
   reloadMcpServers,
   setMcpServerEnabled,
+  startMcpOAuth,
   updateMcpServer,
 } from "@/app/actions";
 import { AuthFields } from "@/components/auth-fields";
@@ -66,6 +69,12 @@ function ServerRow({ server }: { server: McpServer }) {
   const [toolsOpen, tools] = useDisclosure(false);
   const [editOpen, edit] = useDisclosure(false);
 
+  async function connectOAuth() {
+    const result = await startMcpOAuth(server.id);
+    notifyResult(result);
+    if (result.authorizationUrl) window.location.assign(result.authorizationUrl);
+  }
+
   const status = !server.enabled
     ? { colour: "gray", label: "disabled" }
     : server.connected
@@ -89,6 +98,11 @@ function ServerRow({ server }: { server: McpServer }) {
               <Badge variant="default" size="sm">
                 {server.transport}
               </Badge>
+              {server.authMode === "oauth" && (
+                <Badge color={server.oauthStatus === "connected" ? "teal" : "yellow"} variant="light" size="sm">
+                  OAuth · {server.oauthStatus.replace("_", " ")}
+                </Badge>
+              )}
               <Badge color={status.colour} variant="light" size="sm">
                 {status.label}
               </Badge>
@@ -111,6 +125,11 @@ function ServerRow({ server }: { server: McpServer }) {
           </Stack>
 
           <Group gap="xs" wrap="nowrap">
+            {server.authMode === "oauth" && server.transport === "http" && (
+              <Button size="xs" variant="light" loading={pending} onClick={() => start(() => connectOAuth())}>
+                {server.oauthStatus === "connected" ? "Reconnect account" : "Connect account"}
+              </Button>
+            )}
             <Button size="xs" variant="default" onClick={edit.open}>
               Edit
             </Button>
@@ -162,6 +181,13 @@ function ServerRow({ server }: { server: McpServer }) {
             </Text>
           </Alert>
         )}
+        {server.authMode === "oauth" && server.oauthError && (
+          <Alert color="red" variant="light" p="xs">
+            <Text size="sm" style={{ overflowWrap: "anywhere" }}>
+              OAuth: {server.oauthError}
+            </Text>
+          </Alert>
+        )}
 
         {server.toolNames.length > 0 && (
           <>
@@ -209,6 +235,8 @@ function EditModal({
       args: server.args.join(" "),
       env: "",
       auth: emptyAuth,
+      authMode: server.authMode,
+      oauth: { clientId: "", clientSecret: "", scope: "" },
     },
     validate: zodValidate(mcpServerSchema),
   });
@@ -216,11 +244,15 @@ function EditModal({
   // A stored credential is never readable, so an untouched form must not be
   // able to erase it. Only an explicit choice here replaces it.
   const replaceSecret = form.values.auth.mode !== "none" || form.values.env.trim().length > 0;
+  const replaceOAuth =
+    form.values.oauth.clientId.trim().length > 0 ||
+    form.values.oauth.clientSecret.length > 0 ||
+    form.values.oauth.scope.trim().length > 0;
 
   async function submit(values: McpServerInput) {
     setPending(true);
     try {
-      const result = await updateMcpServer(server.id, values, { replaceSecret });
+      const result = await updateMcpServer(server.id, values, { replaceSecret, replaceOAuth });
       notifyResult(result);
       if (result.fieldErrors) form.setErrors(result.fieldErrors);
       if (result.status === "success") onClose();
@@ -243,7 +275,30 @@ function EditModal({
           {server.transport === "http" ? (
             <>
               <TextInput label="URL" {...form.getInputProps("url")} />
-              <AuthFields form={form} exclude={["query"]} />
+              <SegmentedControl
+                fullWidth
+                data={[
+                  { value: "static", label: "Static credentials" },
+                  { value: "oauth", label: "Sign in with OAuth" },
+                ]}
+                {...form.getInputProps("authMode")}
+              />
+              {form.values.authMode === "oauth" ? (
+                <Stack gap="xs">
+                  <Text size="sm" c="dimmed">
+                    Leave these blank to keep the saved OAuth client. Enter only values you want to change.
+                  </Text>
+                  <TextInput label="OAuth client ID" {...form.getInputProps("oauth.clientId")} />
+                  <PasswordInput
+                    label="OAuth client secret"
+                    autoComplete="new-password"
+                    {...form.getInputProps("oauth.clientSecret")}
+                  />
+                  <TextInput label="Scopes" placeholder="read write" {...form.getInputProps("oauth.scope")} />
+                </Stack>
+              ) : (
+                <AuthFields form={form} exclude={["query"]} />
+              )}
             </>
           ) : (
             <>

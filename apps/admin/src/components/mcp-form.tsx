@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Group, SegmentedControl, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { Button, Group, PasswordInput, SegmentedControl, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { createMcpServer } from "@/app/actions";
 import { AuthFields } from "@/components/auth-fields";
@@ -17,6 +17,7 @@ export function McpServerForm() {
   });
 
   const transport = form.values.transport;
+  const usesOAuth = transport === "http" && form.values.authMode === "oauth";
 
   async function submit(values: McpServerInput) {
     setPending(true);
@@ -66,7 +67,35 @@ export function McpServerForm() {
               placeholder="https://mcp.example.com/mcp"
               {...form.getInputProps("url")}
             />
-            <AuthFields form={form} exclude={["query"]} />
+            <SegmentedControl
+              fullWidth
+              data={[
+                { value: "static", label: "Static credentials" },
+                { value: "oauth", label: "Sign in with OAuth" },
+              ]}
+              {...form.getInputProps("authMode")}
+            />
+            {usesOAuth ? (
+              <Stack gap="xs">
+                <Text size="sm" c="dimmed">
+                  Jarvis discovers the provider and opens its normal account sign-in after this server is saved.
+                  A client ID is only needed when the provider does not support automatic registration.
+                </Text>
+                <TextInput label="OAuth client ID (optional)" {...form.getInputProps("oauth.clientId")} />
+                <PasswordInput
+                  label="OAuth client secret (optional)"
+                  autoComplete="new-password"
+                  {...form.getInputProps("oauth.clientSecret")}
+                />
+                <TextInput
+                  label="Scopes (optional)"
+                  placeholder="read write"
+                  {...form.getInputProps("oauth.scope")}
+                />
+              </Stack>
+            ) : (
+              <AuthFields form={form} exclude={["query"]} />
+            )}
           </>
         ) : (
           <>
@@ -97,7 +126,9 @@ export function McpServerForm() {
             Register and connect
           </Button>
           <Text size="xs" c="dimmed">
-            Connects immediately — the tools are usable without a restart.
+            {usesOAuth
+              ? "Saves first; then use “Connect account” on the server to sign in with the provider."
+              : "Connects immediately — the tools are usable without a restart."}
           </Text>
         </Group>
       </Stack>

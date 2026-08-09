@@ -91,6 +91,37 @@ export class ConversationRepository {
     return this.create(userId);
   }
 
+  /**
+   * The IMAP watcher runs an internal `email` conversation to classify a new
+   * message. It must never become the default Telegram/voice conversation:
+   * otherwise the owner's next chat reply inherits the classifier's strict
+   * ACTION/SUMMARY/DRAFT prompt instead of behaving like a normal request.
+   */
+  async findOrCreateInteractive(userId: string, idleMinutes = 180): Promise<ConversationRow> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      title: string | null;
+      last_active_at: Date;
+    }>(
+      `SELECT c.id, c.user_id, c.title, c.last_active_at
+         FROM conversations c
+        WHERE c.user_id = $1 AND c.last_active_at > now() - ($2 || ' minutes')::interval
+          AND COALESCE((
+            SELECT m.channel FROM messages m
+             WHERE m.conversation_id = c.id
+             ORDER BY m.id DESC LIMIT 1
+          ), '') <> 'email'
+        ORDER BY c.last_active_at DESC
+        LIMIT 1`,
+      [userId, String(idleMinutes)],
+    );
+    const row = rows[0];
+    return row
+      ? { id: row.id, userId: row.user_id, title: row.title, lastActiveAt: row.last_active_at }
+      : this.create(userId);
+  }
+
   async touch(conversationId: string): Promise<void> {
     await this.pool.query(
       `UPDATE conversations SET last_active_at = now() WHERE id = $1`,

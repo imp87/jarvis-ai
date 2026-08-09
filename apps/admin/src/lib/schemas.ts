@@ -105,6 +105,13 @@ export const mcpServerSchema = z
     env: z.string().default(""),
     /** http only. A stdio server's secrets are environment variables, not headers. */
     auth: authSchema,
+    /** http only: provider sign-in with OAuth 2.1 + PKCE rather than static headers. */
+    authMode: z.enum(["static", "oauth"]).default("static"),
+    oauth: z.object({
+      clientId: z.string().trim().max(1000).default(""),
+      clientSecret: z.string().max(2000).default(""),
+      scope: z.string().trim().max(2000).default(""),
+    }),
   })
   .superRefine((input, ctx) => {
     if (input.transport === "http") {
@@ -123,6 +130,13 @@ export const mcpServerSchema = z
         message: "a command is required",
       });
     }
+    if (input.authMode === "oauth" && input.transport !== "http") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["authMode"],
+        message: "OAuth is only available for remote HTTP MCP servers",
+      });
+    }
   });
 
 export type McpServerInput = z.infer<typeof mcpServerSchema>;
@@ -136,6 +150,8 @@ export const emptyMcpServer: McpServerInput = {
   args: "",
   env: "",
   auth: emptyAuth,
+  authMode: "static",
+  oauth: { clientId: "", clientSecret: "", scope: "" },
 };
 
 // --- Embedded IMAP accounts ------------------------------------------------

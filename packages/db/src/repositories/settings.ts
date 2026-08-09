@@ -26,6 +26,7 @@ export interface RuntimePolicyOverrides {
   quietHoursTimezone: string | null;
   maxCallsPerHour: number | null;
   maxCallsPerDay: number | null;
+  mcpOauthCallbackBaseUrl: string | null;
   updatedAt: Date | null;
 }
 
@@ -35,6 +36,7 @@ export const NO_OVERRIDES: RuntimePolicyOverrides = {
   quietHoursTimezone: null,
   maxCallsPerHour: null,
   maxCallsPerDay: null,
+  mcpOauthCallbackBaseUrl: null,
   updatedAt: null,
 };
 
@@ -50,10 +52,11 @@ export class SettingsRepository {
       quiet_hours_timezone: string | null;
       max_calls_per_hour: number | null;
       max_calls_per_day: number | null;
+      mcp_oauth_callback_base_url: string | null;
       updated_at: Date;
     }>(
       `SELECT quiet_hours_start, quiet_hours_end, quiet_hours_timezone,
-              max_calls_per_hour, max_calls_per_day, updated_at
+              max_calls_per_hour, max_calls_per_day, mcp_oauth_callback_base_url, updated_at
          FROM runtime_settings WHERE id = true`,
     );
     const row = rows[0];
@@ -64,6 +67,7 @@ export class SettingsRepository {
       quietHoursTimezone: row.quiet_hours_timezone,
       maxCallsPerHour: row.max_calls_per_hour === null ? null : Number(row.max_calls_per_hour),
       maxCallsPerDay: row.max_calls_per_day === null ? null : Number(row.max_calls_per_day),
+      mcpOauthCallbackBaseUrl: row.mcp_oauth_callback_base_url,
       updatedAt: row.updated_at,
     };
   }
@@ -86,6 +90,7 @@ export class SettingsRepository {
       ["quietHoursTimezone", "quiet_hours_timezone"],
       ["maxCallsPerHour", "max_calls_per_hour"],
       ["maxCallsPerDay", "max_calls_per_day"],
+      ["mcpOauthCallbackBaseUrl", "mcp_oauth_callback_base_url"],
     ];
 
     const assignments: string[] = [];
