@@ -155,7 +155,10 @@ export class RealtimeCallSession {
             },
           },
         ],
-        tool_choice: "auto",
+        // Caller speech must be delegated. Otherwise the Realtime model can
+        // answer from its own, intentionally tiny tool set and claim that it
+        // has no MCP tools even though the orchestrator does.
+        tool_choice: "required",
       },
     });
   }
@@ -165,6 +168,7 @@ export class RealtimeCallSession {
       type: "response.create",
       response: {
         modalities: ["audio"],
+        tool_choice: "none",
         instructions: `Say exactly this greeting, then wait for the caller: ${this.options.greeting}`,
       },
     });
@@ -263,7 +267,15 @@ export class RealtimeCallSession {
       type: "conversation.item.create",
       item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
     });
-    this.send({ type: "response.create", response: { modalities: ["audio"] } });
+    this.send({
+      type: "response.create",
+      response: {
+        modalities: ["audio"],
+        // This response must read the already-authorised orchestrator result,
+        // not start a second delegation loop.
+        tool_choice: "none",
+      },
+    });
   }
 
   private queueRemoteAudio(chunk: Buffer): void {
