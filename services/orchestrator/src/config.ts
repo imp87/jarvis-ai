@@ -22,13 +22,14 @@ export const envSchema = baseEnvSchema.extend({
   MCP_OAUTH_CALLBACK_BASE_URL: z.string().url().default("https://jarvis.steven-dautrich.de"),
 
   /**
-   * Backend for the embedded `web` MCP server. DuckDuckGo's HTML endpoint is
-   * the default because it needs no account, so web search works on a fresh
-   * install; it is a scrape, so switch providers if it ever stops returning
-   * results.
+   * Backend for the embedded `web` MCP server. DuckDuckGo needs no account, so
+   * search works on a fresh install — but it is a scrape, and a server that
+   * scrapes it gets a bot check instead of results. On anything hosted, use one
+   * of the API providers; `tavily` is the one whose free tier needs no card.
    */
-  WEB_SEARCH_PROVIDER: z.enum(["duckduckgo", "brave", "searxng"]).default("duckduckgo"),
+  WEB_SEARCH_PROVIDER: z.enum(["duckduckgo", "brave", "searxng", "tavily"]).default("duckduckgo"),
   BRAVE_SEARCH_API_KEY: z.string().optional(),
+  TAVILY_API_KEY: z.string().optional(),
   /** Base URL of a self-hosted SearXNG instance, e.g. http://searxng:8080. */
   SEARXNG_URL: z.string().url().optional(),
   WEB_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
@@ -38,6 +39,10 @@ export const envSchema = baseEnvSchema.extend({
   .refine((v) => v.WEB_SEARCH_PROVIDER !== "brave" || Boolean(v.BRAVE_SEARCH_API_KEY), {
     message: "WEB_SEARCH_PROVIDER=brave requires BRAVE_SEARCH_API_KEY",
     path: ["BRAVE_SEARCH_API_KEY"],
+  })
+  .refine((v) => v.WEB_SEARCH_PROVIDER !== "tavily" || Boolean(v.TAVILY_API_KEY), {
+    message: "WEB_SEARCH_PROVIDER=tavily requires TAVILY_API_KEY",
+    path: ["TAVILY_API_KEY"],
   })
   .refine((v) => v.WEB_SEARCH_PROVIDER !== "searxng" || Boolean(v.SEARXNG_URL), {
     message: "WEB_SEARCH_PROVIDER=searxng requires SEARXNG_URL",

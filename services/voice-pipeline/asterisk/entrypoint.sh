@@ -24,6 +24,11 @@ envsubst "$SUBST" < /etc/asterisk/templates/websocket_client.conf > /etc/asteris
 cp /etc/asterisk/templates/chan_websocket.conf /etc/asterisk/chan_websocket.conf
 chown asterisk:asterisk /etc/asterisk/pjsip.conf /etc/asterisk/extensions.conf /etc/asterisk/websocket_client.conf /etc/asterisk/chan_websocket.conf
 
+# Existing call files can predate the shared-UID fix. Repair the bounded spool
+# at startup so Asterisk no longer retries and warns about every historical
+# file; new files are already created under the same numeric uid.
+chown -R asterisk:asterisk /var/spool/asterisk
+
 # Fail loudly if a placeholder survived — a half-substituted registration would
 # otherwise just never connect, with nothing in the log explaining why.
 if grep -q '\${SIP_' /etc/asterisk/pjsip.conf; then

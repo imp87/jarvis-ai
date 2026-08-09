@@ -64,9 +64,11 @@ services:
       # paths. Registry rows store ${MCP_WORKSPACE_DIR} rather than a literal
       # path, which is what lets one row work on a dev host and here.
       MCP_WORKSPACE_DIR: /workspace
-      # Embedded "web" MCP server. The default provider needs no key, so search
-      # and page reading work without any further configuration.
+      # Embedded "web" MCP server. The default provider needs no key but is a
+      # scrape: a hosted server generally gets a bot check rather than results,
+      # so set WEB_SEARCH_PROVIDER to an API provider here.
       WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-duckduckgo}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
       SEARXNG_URL: ${SEARXNG_URL:-}
       WEB_REQUEST_TIMEOUT_MS: ${WEB_REQUEST_TIMEOUT_MS:-15000}

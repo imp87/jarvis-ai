@@ -150,6 +150,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     tools: buildEmbeddedWebTools({
       provider: env.WEB_SEARCH_PROVIDER,
       braveApiKey: env.BRAVE_SEARCH_API_KEY,
+      tavilyApiKey: env.TAVILY_API_KEY,
       searxngUrl: env.SEARXNG_URL,
       timeoutMs: env.WEB_REQUEST_TIMEOUT_MS,
       maxBytes: env.WEB_FETCH_MAX_BYTES,

@@ -147,6 +147,42 @@ test("results from the first endpoint that answers are used", async () => {
   assert.match(result.content, /Auszug\./);
 });
 
+test("Tavily results are mapped, and its error body reaches the operator", async () => {
+  const ok = buildEmbeddedWebTools({
+    provider: "tavily",
+    tavilyApiKey: "tvly-test",
+    logger: silentLogger,
+    fetchImpl: (async (_url: unknown, init: { body?: string } = {}) => {
+      // The key travels as a bearer token and the limit as max_results.
+      assert.deepEqual(JSON.parse(init.body ?? "{}"), { query: "Steve Jobs", max_results: 2 });
+      return Response.json({
+        results: [
+          { title: "Steve Jobs - Wikipedia", url: "https://en.wikipedia.org/wiki/Steve_Jobs", content: "Mitgründer von Apple." },
+        ],
+      });
+    }) as unknown as typeof fetch,
+  })[0];
+
+  const result = await ok!.execute({ query: "Steve Jobs", limit: 2 }, ctx);
+  assert.notEqual(result.isError, true);
+  assert.match(result.content, /en\.wikipedia\.org\/wiki\/Steve_Jobs/);
+  assert.match(result.content, /Mitgründer von Apple\./);
+
+  const broke = buildEmbeddedWebTools({
+    provider: "tavily",
+    tavilyApiKey: "tvly-wrong",
+    logger: silentLogger,
+    fetchImpl: (async () =>
+      Response.json({ detail: "Unauthorized: invalid API key" }, { status: 401 })) as unknown as typeof fetch,
+  })[0];
+
+  const failed = await broke!.execute({ query: "x" }, ctx);
+  assert.equal(failed.isError, true);
+  // The status alone cannot tell a typo from an exhausted quota.
+  assert.match(failed.content, /401/);
+  assert.match(failed.content, /invalid API key/);
+});
+
 test("only absolute http(s) URLs are accepted", () => {
   assert.equal(parseWebUrl("https://example.com/a").hostname, "example.com");
   assert.throws(() => parseWebUrl("file:///etc/passwd"), /only http and https/);

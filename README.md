@@ -81,10 +81,23 @@ curl -X POST localhost:18780/v1/actions/agent \
 
 The agent carries a built-in `web` MCP server — `mcp_web__search` and
 `mcp_web__read` — so anything current (weather, news, prices, opening hours)
-comes from the live internet rather than from training data. It works with no
-configuration: `WEB_SEARCH_PROVIDER` defaults to DuckDuckGo's keyless HTML
-endpoint. Set it to `brave` (`BRAVE_SEARCH_API_KEY`) or `searxng`
-(`SEARXNG_URL`) for a real API or your own instance.
+comes from the live internet rather than from training data.
+
+`WEB_SEARCH_PROVIDER` defaults to `duckduckgo`, which needs no key and is fine
+on a home network. **On a hosted server, switch it.** DuckDuckGo is scraped, and
+a datacenter IP gets a bot check — an HTTP 200 page with no results in it — so
+searching from a VPS fails until a provider with an actual API is configured:
+
+| Provider | Key | Free tier |
+|---|---|---|
+| `tavily` | `TAVILY_API_KEY` | 1,000 requests/month, no credit card |
+| `brave` | `BRAVE_SEARCH_API_KEY` | $5 credits/month (~1,000), card required for identity |
+| `searxng` | `SEARXNG_URL` | your own instance — but it scrapes upstream engines from your IP too |
+
+A bot check is never reported as "no results": the tool errors, logs the page
+title and a text excerpt, and names the environment variable to change. Page
+reading is unaffected either way — `mcp_web__read` fetches directly and needs
+no provider at all.
 
 Both tools refuse URLs that resolve into the private network, and re-check
 after every redirect. That is not decoration: the model picks these URLs out of

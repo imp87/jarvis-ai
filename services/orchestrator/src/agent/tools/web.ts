@@ -15,12 +15,14 @@ import type { Logger, ToolResult } from "@jarvis/shared";
  * every hit (slow, and mostly wasted tokens) or answer from snippets alone.
  */
 
-export type WebSearchProvider = "duckduckgo" | "brave" | "searxng";
+export type WebSearchProvider = "duckduckgo" | "brave" | "searxng" | "tavily";
 
 export interface WebToolOptions {
   provider: WebSearchProvider;
   /** Required for `provider === "brave"`. */
   braveApiKey?: string | undefined;
+  /** Required for `provider === "tavily"`. */
+  tavilyApiKey?: string | undefined;
   /** Base URL of a self-hosted SearXNG instance; required for that provider. */
   searxngUrl?: string | undefined;
   logger: Logger;
@@ -33,8 +35,10 @@ export interface WebToolOptions {
   fetchImpl?: typeof fetch;
 }
 
-interface ResolvedOptions extends Required<Omit<WebToolOptions, "braveApiKey" | "searxngUrl">> {
+interface ResolvedOptions
+  extends Required<Omit<WebToolOptions, "braveApiKey" | "tavilyApiKey" | "searxngUrl">> {
   braveApiKey: string | undefined;
+  tavilyApiKey: string | undefined;
   searxngUrl: string | undefined;
 }
 
@@ -75,6 +79,7 @@ export function buildEmbeddedWebTools(options: WebToolOptions): EmbeddedMcpTool[
   const opts: ResolvedOptions = {
     provider: options.provider,
     braveApiKey: options.braveApiKey,
+    tavilyApiKey: options.tavilyApiKey,
     searxngUrl: options.searxngUrl,
     logger: options.logger,
     timeoutMs: options.timeoutMs ?? 15_000,
@@ -180,11 +185,35 @@ async function runSearch(
   switch (opts.provider) {
     case "brave":
       return searchBrave(query, limit, opts);
+    case "tavily":
+      return searchTavily(query, limit, opts);
     case "searxng":
       return searchSearxng(query, limit, opts);
     case "duckduckgo":
       return searchDuckDuckGo(query, limit, opts);
   }
+}
+
+/**
+ * Turns a provider's error response into something the operator can act on.
+ *
+ * "HTTP 401" alone does not distinguish a typo in the key from an exhausted
+ * quota, and both are the likely reasons a search API stops working — so the
+ * provider's own message is read back rather than discarded.
+ */
+async function httpFailure(
+  provider: string,
+  response: Response,
+  opts: ResolvedOptions,
+): Promise<Error> {
+  let detail = "";
+  try {
+    const { text } = await readBoundedBody(response, Math.min(opts.maxBytes, 4_000));
+    detail = truncate(htmlToText(text), 200);
+  } catch {
+    // The body is a nicety; the status code is the part that must survive.
+  }
+  return new Error(`${provider} returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
 }
 
 /**
@@ -360,7 +389,7 @@ async function searchBrave(
   const { response } = await fetchGuarded(url.toString(), opts, {
     headers: { accept: "application/json", "x-subscription-token": opts.braveApiKey },
   });
-  if (!response.ok) throw new Error(`Brave Search returned HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("Brave Search", response, opts);
   const { text } = await readBoundedBody(response, opts.maxBytes);
   const payload = JSON.parse(text) as { web?: { results?: unknown } };
   return toHits(payload.web?.results, {
@@ -368,6 +397,32 @@ async function searchBrave(
     url: "url",
     snippet: "description",
   }).slice(0, limit);
+}
+
+/**
+ * Tavily is built for exactly this: an agent asking a question from a server.
+ * There is no bot check to fail, because using it from a datacenter is the
+ * intended case rather than something to be defended against.
+ */
+async function searchTavily(
+  query: string,
+  limit: number,
+  opts: ResolvedOptions,
+): Promise<SearchHit[]> {
+  if (!opts.tavilyApiKey) throw new Error("TAVILY_API_KEY is not configured");
+  const { response } = await fetchGuarded("https://api.tavily.com/search", opts, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      authorization: `Bearer ${opts.tavilyApiKey}`,
+    },
+    body: JSON.stringify({ query, max_results: limit }),
+  });
+  if (!response.ok) throw await httpFailure("Tavily", response, opts);
+  const { text } = await readBoundedBody(response, opts.maxBytes);
+  const payload = JSON.parse(text) as { results?: unknown };
+  return toHits(payload.results, { title: "title", url: "url", snippet: "content" }).slice(0, limit);
 }
 
 async function searchSearxng(
@@ -386,7 +441,7 @@ async function searchSearxng(
     // URL the model chose, so the guard does not apply to it.
     allowPrivateHost: true,
   });
-  if (!response.ok) throw new Error(`SearXNG returned HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("SearXNG", response, opts);
   const { text } = await readBoundedBody(response, opts.maxBytes);
   const payload = JSON.parse(text) as { results?: unknown };
   return toHits(payload.results, { title: "title", url: "url", snippet: "content" }).slice(0, limit);
