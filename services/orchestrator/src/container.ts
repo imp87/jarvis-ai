@@ -99,11 +99,19 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     calls,
     ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
   });
-  const tools = new ToolRegistry(builtins, mcp, repos.registry, masterKey, logger);
+  const tools = new ToolRegistry(
+    builtins,
+    mcp,
+    repos.registry,
+    masterKey,
+    logger,
+    env.MAX_TOOL_RESULT_CHARS,
+  );
 
   const agent = new AgentLoop(router, tools, memory, repos.conversations, logger, {
     maxSteps: env.MAX_AGENT_STEPS,
     timezone: env.QUIET_HOURS_TIMEZONE,
+    maxHistoryChars: env.MAX_HISTORY_CHARS,
   });
 
   return {

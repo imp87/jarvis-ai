@@ -30,6 +30,26 @@ export const baseEnvSchema = z.object({
 
   MAX_LLM_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(60),
   MAX_AGENT_STEPS: z.coerce.number().int().positive().max(50).default(12),
+
+  /**
+   * Ceiling on a single tool result, in characters (~4 per token).
+   *
+   * A schema dump or a directory listing can run to six figures. The model
+   * cannot act on that much text anyway, and — because results are persisted as
+   * conversation messages — an unbounded one is re-sent on every subsequent
+   * turn, for the life of the conversation. One 107 KB `list_tables` result
+   * pushed real requests to ~84k input tokens and exhausted the provider's
+   * per-minute token budget after two turns.
+   */
+  MAX_TOOL_RESULT_CHARS: z.coerce.number().int().positive().default(8_000),
+
+  /**
+   * Ceiling on the replayed conversation history, in characters.
+   *
+   * Trimming by message count alone bounds nothing: forty messages can be forty
+   * kilobytes or forty megabytes.
+   */
+  MAX_HISTORY_CHARS: z.coerce.number().int().positive().default(48_000),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;

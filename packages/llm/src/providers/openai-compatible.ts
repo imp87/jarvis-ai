@@ -28,6 +28,10 @@ export interface OpenAICompatibleOptions {
   maxTokens?: number;
   supportsTools?: boolean;
   timeoutMs?: number;
+  /** Retries for 429 and 5xx. Default 2. */
+  maxRetries?: number;
+  /** Upper bound on a single retry wait, however long the provider asks for. */
+  maxRetryWaitMs?: number;
   /** Used to report learned parameter fixes, so a degradation is never silent. */
   logger?: Logger;
 }
@@ -105,6 +109,8 @@ export class OpenAICompatibleProvider implements ChatProvider {
   private readonly defaultMaxTokens: number;
   private readonly timeoutMs: number;
   private readonly logger: Logger | undefined;
+  private readonly maxRetries: number;
+  private readonly maxRetryWaitMs: number;
 
   constructor(options: OpenAICompatibleOptions) {
     this.logger = options.logger;
@@ -115,6 +121,10 @@ export class OpenAICompatibleProvider implements ChatProvider {
     this.supportsTools = options.supportsTools ?? true;
     this.defaultMaxTokens = options.maxTokens ?? 4096;
     this.timeoutMs = options.timeoutMs ?? 120_000;
+    this.maxRetries = options.maxRetries ?? 2;
+    // Capped deliberately: the provider may ask for a 60-second wait, and on a
+    // live phone call a minute of silence is worse than an honest failure.
+    this.maxRetryWaitMs = options.maxRetryWaitMs ?? 20_000;
   }
 
   /** Per-model parameter fixes learned from 400 responses. */
@@ -238,7 +248,45 @@ export class OpenAICompatibleProvider implements ChatProvider {
     };
   }
 
-  private async post<T>(
+  /**
+   * Retries throttling and transient server errors.
+   *
+   * A 429 says how long to wait and is not a failure of the request — treating
+   * it as one took down a phone call mid-conversation because the token budget
+   * was momentarily exhausted. Parameter rejections (400) are deliberately not
+   * retried here; `postLearning` handles those by changing the request.
+   */
+  private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.postOnce<T>(path, body, signal);
+      } catch (err) {
+        const wait = this.retryDelayFor(err, attempt);
+        if (wait === undefined) throw err;
+        this.logger?.warn(
+          { provider: this.name, attempt: attempt + 1, waitMs: wait },
+          "provider throttled or unavailable; retrying",
+        );
+        await sleep(wait, signal);
+      }
+    }
+  }
+
+  /** Milliseconds to wait before retrying, or undefined to give up. */
+  private retryDelayFor(err: unknown, attempt: number): number | undefined {
+    if (attempt >= this.maxRetries) return undefined;
+    if (!(err instanceof ProviderError)) return undefined;
+
+    const details = err.details as { status?: number; retryAfterMs?: number } | undefined;
+    const status = details?.status;
+    if (status !== 429 && !(status !== undefined && status >= 500)) return undefined;
+
+    // Honour what the provider asked for; fall back to exponential backoff.
+    const requested = details?.retryAfterMs ?? 1_000 * 2 ** attempt;
+    return Math.min(requested, this.maxRetryWaitMs);
+  }
+
+  private async postOnce<T>(
     path: string,
     body: unknown,
     signal?: AbortSignal,
@@ -275,7 +323,12 @@ export class OpenAICompatibleProvider implements ChatProvider {
         throw new ProviderError(
           `${this.name} ${response.status}: ${text.slice(0, 500)}`,
           this.name,
-          { status: response.status },
+          {
+            status: response.status,
+            ...(retryAfterMs(response, text) !== undefined
+              ? { retryAfterMs: retryAfterMs(response, text) }
+              : {}),
+          },
         );
       }
       return (await response.json()) as T;
@@ -300,6 +353,44 @@ function safeParseError(text: string): OpenAIErrorBody["error"] | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * How long the provider wants us to wait.
+ *
+ * `retry-after` is the standard header, but OpenAI's token-per-minute errors
+ * carry the delay only in the prose ("Please try again in 26.343s"), so both
+ * are read. Missing or nonsensical values fall through to backoff.
+ */
+function retryAfterMs(response: Response, text: string): number | undefined {
+  const header = response.headers.get("retry-after");
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  }
+  const match = /try again in ([\d.]+)\s*(ms|s)\b/i.exec(text);
+  if (match?.[1]) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) {
+      return Math.round(match[2]?.toLowerCase() === "ms" ? value : value * 1000);
+    }
+  }
+  return undefined;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("aborted"));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      },
+      { once: true },
+    );
+  });
 }
 
 export class OpenAICompatibleEmbeddings implements EmbeddingProvider {

@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --import tsx ./test/*.test.ts",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "clean": "rimraf dist .turbo"

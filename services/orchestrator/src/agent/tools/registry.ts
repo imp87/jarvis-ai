@@ -22,6 +22,8 @@ export class ToolRegistry {
     private readonly registryRepo: RegistryRepository,
     private readonly masterKey: Buffer,
     private readonly logger: Logger,
+    /** See MAX_TOOL_RESULT_CHARS — an unbounded result poisons every later turn. */
+    private readonly maxResultChars = 8_000,
   ) {}
 
   /**
@@ -83,6 +85,26 @@ export class ToolRegistry {
       result = { content: `Tool "${name}" failed: ${(err as Error).message}`, isError: true };
     }
     const durationMs = Date.now() - started;
+
+    // Truncate before the result reaches either the model or the transcript.
+    // Doing it here rather than at the call site means every caller is covered,
+    // and the stored message can never be larger than what the model saw.
+    const original = result.content.length;
+    if (original > this.maxResultChars) {
+      result = {
+        ...result,
+        content:
+          `${result.content.slice(0, this.maxResultChars)}\n\n` +
+          `[truncated: ${original.toLocaleString()} characters total, ` +
+          `${(original - this.maxResultChars).toLocaleString()} omitted. ` +
+          `Narrow the request — filter, paginate, or ask for fewer fields — ` +
+          `rather than calling this again unchanged.]`,
+      };
+      this.logger.warn(
+        { tool: name, chars: original, limit: this.maxResultChars },
+        "tool result truncated",
+      );
+    }
 
     await this.registryRepo
       .logToolInvocation({

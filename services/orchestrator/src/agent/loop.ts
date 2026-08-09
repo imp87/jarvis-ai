@@ -39,6 +39,38 @@ export interface AgentLoopOptions {
   maxSteps: number;
   timezone: string;
   historyLimit?: number;
+  /** See MAX_HISTORY_CHARS. A message count bounds nothing on its own. */
+  maxHistoryChars?: number;
+}
+
+/**
+ * Drops the oldest messages until the replayed history fits the budget.
+ *
+ * The subtlety is that a `tool_result` is only valid immediately after the
+ * `tool_call` that produced it — every provider rejects an orphan. So after
+ * trimming by size, any leading tool results whose call was just dropped go
+ * too, even if that costs more than the budget required.
+ */
+export function trimHistory(messages: LlmMessage[], maxChars: number): LlmMessage[] {
+  let used = 0;
+  let start = messages.length;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const size = JSON.stringify(messages[i]?.content ?? "").length;
+    // Always keep the newest message, however large: dropping the turn the user
+    // just took would be worse than exceeding the budget once.
+    if (used + size > maxChars && i < messages.length - 1) break;
+    used += size;
+    start = i;
+  }
+
+  const kept = messages.slice(start);
+  while (kept.length > 0 && startsWithOrphanedToolResult(kept[0])) kept.shift();
+  return kept;
+}
+
+function startsWithOrphanedToolResult(message: LlmMessage | undefined): boolean {
+  if (!message || typeof message.content === "string") return false;
+  return message.content.some((block) => block.type === "tool_result");
 }
 
 /**
@@ -66,10 +98,17 @@ export class AgentLoop {
       channel,
     });
 
-    const history = await this.conversations.recentMessages(
+    const loaded = await this.conversations.recentMessages(
       conversationId,
       this.options.historyLimit ?? 40,
     );
+    const history = trimHistory(loaded, this.options.maxHistoryChars ?? 48_000);
+    if (history.length < loaded.length) {
+      this.logger.info(
+        { conversationId, dropped: loaded.length - history.length, kept: history.length },
+        "history trimmed to fit the context budget",
+      );
+    }
     const memoryContext = await this.memory.retrieveContext(userId, input.text);
     const system = buildSystemPrompt({
       ownerName: input.ownerName,
