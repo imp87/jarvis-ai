@@ -62,7 +62,15 @@ const handleCall = async (
       ? context?.trim() || "Master, Jarvis hier. Ich habe eine Erinnerung für Sie."
       : env.VOICE_GREETING;
 
-  logger.info({ callId: pending.callId, direction: pending.direction, mode: env.VOICE_MODE }, "call connected");
+  logger.info(
+    {
+      callId: pending.callId,
+      direction: pending.direction,
+      mode: env.VOICE_MODE,
+      ...(env.VOICE_MODE === "realtime" ? { realtimeVoice: env.OPENAI_REALTIME_VOICE } : {}),
+    },
+    "call connected",
+  );
   // Outbound calls are logged as `dialing` until something says otherwise; this
   // is the first moment anyone knows the phone was actually answered.
   void orchestrator.reportCallStatus(pending.callId, "in_progress");

@@ -24,6 +24,10 @@ type RealtimeEvent = {
   arguments?: string;
   item?: { type?: string; name?: string; call_id?: string; arguments?: string };
   transcript?: string;
+  session?: {
+    voice?: string;
+    audio?: { output?: { voice?: string } };
+  };
 };
 
 /**
@@ -129,9 +133,17 @@ export class RealtimeCallSession {
           "faithful transcription. Do not answer the caller yourself before that function returns. " +
           "After it returns, speak the reply faithfully in the same butler persona. Never infer that " +
           "a call should end; the delegated Jarvis response controls that safely.",
-        voice: this.options.voice,
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
+        // The current Realtime schema nests both the voice and formats under
+        // audio.output/audio.input. The former top-level fields are silently
+        // ignored by newer sessions, which leaves OpenAI's default voice on.
+        audio: {
+          input: { format: { type: "audio/pcm", rate: OPENAI_SAMPLE_RATE } },
+          output: {
+            format: { type: "audio/pcm", rate: OPENAI_SAMPLE_RATE },
+            voice: this.options.voice,
+            speed: 1.15,
+          },
+        },
         input_audio_transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
         turn_detection: {
           type: "server_vad",
@@ -195,6 +207,14 @@ export class RealtimeCallSession {
     }
 
     switch (event.type) {
+      case "session.updated": {
+        const effectiveVoice = event.session?.audio?.output?.voice ?? event.session?.voice;
+        this.logger.info(
+          { callId: this.transport.callId, requestedVoice: this.options.voice, effectiveVoice },
+          "OpenAI Realtime session configured",
+        );
+        return;
+      }
       case "response.output_audio.delta":
       case "response.audio.delta":
         if (event.delta) this.queueRemoteAudio(Buffer.from(event.delta, "base64"));
