@@ -30,6 +30,7 @@ RUN apt-get update \
  && menuselect/menuselect --enable chan_websocket --enable res_websocket_client menuselect.makeopts \
  && make -j"$(nproc)" \
  && make install \
+ && make samples \
  && test -f /usr/lib/asterisk/modules/chan_websocket.so \
  && test -f /usr/lib/asterisk/modules/res_websocket_client.so \
  && rm -rf "/tmp/asterisk-${ASTERISK_VERSION}" \
