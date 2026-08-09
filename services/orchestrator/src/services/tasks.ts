@@ -54,7 +54,9 @@ export class TaskService {
         ? (input.runAt ?? new Date())
         : nextRunAt(input.schedule, new Date());
 
-    if (input.schedule.kind === "once" && firstRun && firstRun.getTime() < Date.now() - 60_000) {
+    // A past one-off is not "close enough": the runner claims it on its next
+    // poll and turns a requested future reminder into an immediate action.
+    if (input.schedule.kind === "once" && firstRun && firstRun.getTime() < Date.now()) {
       throw new AppError("that time is in the past", 400, "schedule_in_past");
     }
 

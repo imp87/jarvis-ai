@@ -31,7 +31,9 @@ export function buildTaskTools(deps: {
         "if something needs an answer today' will not.\n\n" +
         "Each task keeps its own conversation across runs, so you can see what you already " +
         "reported and need not repeat yourself.\n\n" +
-        "Use `interval_seconds` for 'every N minutes' and `cron` only for clock times " +
+        "For a one-off relative time such as 'in one hour', always use `delay_seconds` (3600 " +
+        "for one hour). Never calculate an ISO timestamp yourself for a relative time. Use " +
+        "`interval_seconds` only for 'every N minutes' and `cron` only for clock times " +
         "('0 8 * * 1-5'). Do not schedule anything faster than every 5 minutes.",
       source: "builtin",
       // Commits to recurring spend and can reach the user unprompted.
@@ -58,9 +60,17 @@ export function buildTaskTools(deps: {
             description:
               "Five-field cron expression for clock times, e.g. '0 8 * * 1-5'. Use this or interval_seconds.",
           },
+          delay_seconds: {
+            type: "integer",
+            minimum: 60,
+            description:
+              "One-off delay from now in seconds. Use for relative requests: one hour = 3600.",
+          },
           run_once_at: {
             type: "string",
-            description: "ISO-8601 timestamp for a one-off. Use instead of interval_seconds/cron.",
+            description:
+              "Absolute ISO-8601 timestamp for a one-off, including Z or an explicit UTC offset. " +
+              "Use delay_seconds instead for 'in N minutes/hours'.",
           },
         },
         required: ["title", "instruction"],
@@ -76,21 +86,33 @@ export function buildTaskTools(deps: {
           ? Number(args["interval_seconds"])
           : undefined;
         const cron = args["cron"] ? String(args["cron"]) : undefined;
+        const delaySeconds = args["delay_seconds"] ? Number(args["delay_seconds"]) : undefined;
         const runOnceAt = args["run_once_at"] ? new Date(String(args["run_once_at"])) : undefined;
 
-        if ([intervalSeconds, cron, runOnceAt].filter(Boolean).length !== 1) {
+        if ([intervalSeconds, cron, delaySeconds, runOnceAt].filter(Boolean).length !== 1) {
           return {
             content:
-              "Give exactly one of interval_seconds, cron or run_once_at — not none and not several.",
+              "Give exactly one of interval_seconds, cron, delay_seconds or run_once_at — not none and not several.",
             isError: true,
           };
         }
         if (runOnceAt && Number.isNaN(runOnceAt.getTime())) {
           return { content: `"${String(args["run_once_at"])}" is not a valid timestamp.`, isError: true };
         }
+        if (runOnceAt && !/(?:Z|[+-]\d{2}:\d{2})$/u.test(String(args["run_once_at"]))) {
+          return {
+            content: "run_once_at must include a timezone, for example 2026-08-09T18:30:00+02:00.",
+            isError: true,
+          };
+        }
+        if (delaySeconds !== undefined && (!Number.isInteger(delaySeconds) || delaySeconds < 60)) {
+          return { content: "delay_seconds must be an integer of at least 60.", isError: true };
+        }
+        const scheduledAt =
+          runOnceAt ?? (delaySeconds !== undefined ? new Date(Date.now() + delaySeconds * 1000) : undefined);
 
         const schedule = {
-          kind: runOnceAt ? ("once" as const) : cron ? ("cron" as const) : ("interval" as const),
+          kind: scheduledAt ? ("once" as const) : cron ? ("cron" as const) : ("interval" as const),
           intervalSeconds: intervalSeconds ?? null,
           cron: cron ?? null,
           // Tasks the agent creates follow the deployment's zone; it has no
@@ -106,7 +128,7 @@ export function buildTaskTools(deps: {
             prompt: instruction,
             channel: (ctx.channel as ChannelName) ?? "telegram",
             schedule,
-            ...(runOnceAt ? { runAt: runOnceAt } : {}),
+            ...(scheduledAt ? { runAt: scheduledAt } : {}),
             createdBy: "agent",
           });
           return {

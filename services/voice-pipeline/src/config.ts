@@ -22,7 +22,7 @@ export const envSchema = z
 
     OWNER_PHONE_NUMBER: z.string().optional(),
     /** Spoken when the agent answers, before it knows why you called. */
-    VOICE_GREETING: z.string().default("Hallo, hier ist Jarvis. Was kann ich für dich tun?"),
+    VOICE_GREETING: z.string().default("Master, Jarvis hier. Womit kann ich dienen?"),
     /** Hang up after this much silence. */
     VOICE_IDLE_HANGUP_MS: z.coerce.number().int().positive().default(30_000),
     /** Per-utterance STT/LLM/TTS or continuous OpenAI Realtime audio. */
@@ -45,7 +45,8 @@ export const envSchema = z
     /** Slightly brisker than the API default, which feels slow on a phone call. */
     OPENAI_TTS_SPEED: z.coerce.number().min(0.25).max(4).default(1.15),
     OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
-    OPENAI_REALTIME_VOICE: z.string().default("marin"),
+    /** Cedar has a lower, masculine-presenting tone that suits the Jarvis persona. */
+    OPENAI_REALTIME_VOICE: z.string().default("cedar"),
   })
   .refine((v) => v.TTS_ENGINE !== "local" || (Boolean(v.PIPER_BINARY) && Boolean(v.PIPER_MODEL)), {
     message: "local TTS needs PIPER_BINARY and PIPER_MODEL, or set TTS_ENGINE=openai",

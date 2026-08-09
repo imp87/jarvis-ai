@@ -173,7 +173,7 @@ services:
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       SIP_CALLER_ID: ${SIP_CALLER_ID:-}
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
-      VOICE_GREETING: ${VOICE_GREETING:-Hallo, hier ist Jarvis. Was kann ich für dich tun?}
+      VOICE_GREETING: ${VOICE_GREETING:-Master, Jarvis hier. Womit kann ich dienen?}
       VOICE_IDLE_HANGUP_MS: ${VOICE_IDLE_HANGUP_MS:-30000}
       VOICE_MODE: ${VOICE_MODE:-turn}
       STT_ENGINE: ${STT_ENGINE:-local}
@@ -185,7 +185,7 @@ services:
       OPENAI_STT_PROMPT: ${OPENAI_STT_PROMPT:-}
       OPENAI_TTS_SPEED: ${OPENAI_TTS_SPEED:-1.15}
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-2.1}
-      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-marin}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-cedar}
     volumes:
       - speech-models:/models
       # Shared with Asterisk: the pipeline writes call files, Asterisk dials them.
