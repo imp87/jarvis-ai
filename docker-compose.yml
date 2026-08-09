@@ -28,6 +28,9 @@ services:
     build:
       context: .
       dockerfile: services/orchestrator/Dockerfile
+    # Tagged explicitly so the migrate service below can reuse this exact image
+    # instead of building its own from the same Dockerfile.
+    image: jarvis-orchestrator:local
     restart: unless-stopped
     depends_on:
       postgres:
@@ -72,9 +75,12 @@ services:
   #
   # Behind a profile so it never starts as part of `docker compose up`.
   migrate:
-    build:
-      context: .
-      dockerfile: services/orchestrator/Dockerfile
+    # Deliberately no `build:` — it reuses the orchestrator image. Declaring the
+    # same Dockerfile here built a *second* image, and `docker compose build
+    # orchestrator` then left it behind: a new migration was in one image and not
+    # the other, so `migrate` reported "already up to date" while the schema was
+    # a version behind. Run `docker compose build orchestrator` first.
+    image: jarvis-orchestrator:local
     profiles: ["tools"]
     depends_on:
       postgres:
