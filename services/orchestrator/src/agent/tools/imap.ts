@@ -137,7 +137,11 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
 
 function isExplicitSendApproval(value: string): boolean {
   const normalized = value.toLowerCase();
-  return /\b(sende|verschick(?:e)?|schick(?:e)?\s+(?:die|den|das|ihn|sie|es)|abschick(?:e)?|send\s+it)\b/.test(normalized);
+  // The draft ID is selected by the model from the active conversation, so a
+  // direct confirmation immediately after it was shown is a valid approval as
+  // well. Do not treat a bare "ja" as consent: it is too easy to misattach.
+  return /\b(sende|verschick(?:e)?|schick(?:e)?\s+(?:die|den|das|ihn|sie|es)|abschick(?:e)?|send\s+it)\b/.test(normalized)
+    || /\b(freigabe\s+erteilt|freigegeben|ich\s+(?:bestätige|genehmige)\s+(?:den\s+)?(?:entwurf|versand)|du\s+(?:kannst|darfst)\s+(?:ihn|sie|es|den\s+entwurf)\s+(?:senden|verschicken)|mach\s+das)\b/.test(normalized);
 }
 
 function extractReplyAddress(value: string): string {
