@@ -6,6 +6,18 @@ import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
 
 const notifyChannel = z.enum(["telegram", "discord"]);
+const messageRoute = z.enum(["none", "telegram", "discord", "call"]);
+const fallbackRoute = z.enum(["none", "telegram", "discord"]);
+const deliveryPolicy = z.object({
+  low: messageRoute.default("none"),
+  normal: messageRoute.default("telegram"),
+  urgent: messageRoute.default("call"),
+  callFallback: fallbackRoute.default("telegram"),
+  callRetryCount: z.coerce.number().int().min(0).max(4).default(1),
+  callRetryDelayMinutes: z.coerce.number().int().min(1).max(1440).default(20),
+  replyMode: z.enum(["none", "draft", "ask"]).default("draft"),
+  instructions: z.string().trim().max(2000).default(""),
+});
 const accountName = z.string().trim().min(1).max(80).regex(/^[\w .-]+$/, "letters, digits, spaces, . _ and - only");
 const createAccountSchema = z.object({
   userId: z.string().uuid(),
@@ -17,6 +29,7 @@ const createAccountSchema = z.object({
   password: z.string().min(1).max(4_000),
   mailbox: z.string().trim().min(1).max(500).default("INBOX"),
   notifyChannel: notifyChannel.default("telegram"),
+  deliveryPolicy: deliveryPolicy.default({}),
   maxBodyChars: z.coerce.number().int().min(500).max(100_000).default(12_000),
 });
 
@@ -30,6 +43,7 @@ const updateAccountSchema = z.object({
   password: z.string().min(1).max(4_000).optional(),
   mailbox: z.string().trim().min(1).max(500).optional(),
   notifyChannel: notifyChannel.optional(),
+  deliveryPolicy: deliveryPolicy.optional(),
   maxBodyChars: z.coerce.number().int().min(500).max(100_000).optional(),
   enabled: z.boolean().optional(),
 });
@@ -62,6 +76,7 @@ export function imapRoutes(container: Container): Router {
           passwordEnc: encryptSecret(input.password, masterKey),
           mailbox: input.mailbox,
           notifyChannel: input.notifyChannel,
+          deliveryPolicy: input.deliveryPolicy,
           maxBodyChars: input.maxBodyChars,
         })
         .catch((err: unknown) => {
@@ -89,6 +104,7 @@ export function imapRoutes(container: Container): Router {
         ...(input.password !== undefined ? { passwordEnc: encryptSecret(input.password, masterKey) } : {}),
         ...(input.mailbox !== undefined ? { mailbox: input.mailbox } : {}),
         ...(input.notifyChannel !== undefined ? { notifyChannel: input.notifyChannel } : {}),
+        ...(input.deliveryPolicy !== undefined ? { deliveryPolicy: input.deliveryPolicy } : {}),
         ...(input.maxBodyChars !== undefined ? { maxBodyChars: input.maxBodyChars } : {}),
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       });
@@ -125,6 +141,7 @@ function publicAccount(
     username: account.username,
     mailbox: account.mailbox,
     notifyChannel: account.notifyChannel,
+    deliveryPolicy: account.deliveryPolicy,
     maxBodyChars: account.maxBodyChars,
     enabled: account.enabled,
     hasPassword: Boolean(account.passwordEnc),

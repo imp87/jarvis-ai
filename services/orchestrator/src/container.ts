@@ -27,6 +27,7 @@ import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
 import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
 import { ImapService } from "./services/imap.js";
+import { MailDeliveryService } from "./services/mail-delivery.js";
 
 export interface Container {
   config: AppConfig;
@@ -53,6 +54,7 @@ export interface Container {
   taskService: TaskService;
   taskRunner: TaskRunner;
   imap: ImapService;
+  mailDelivery: MailDeliveryService;
   agent: AgentLoop;
   shutdown(): Promise<void>;
 }
@@ -164,11 +166,19 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     logger,
     { pollIntervalMs: env.TASK_POLL_INTERVAL_MS },
   );
+  const mailDelivery = new MailDeliveryService({
+    emails: repos.emails,
+    calls,
+    callLogs: repos.calls,
+    notifications,
+    logger,
+    ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
+  });
   const imap = new ImapService({
     emails: repos.emails,
     conversations: repos.conversations,
     agent,
-    notifications,
+    delivery: mailDelivery,
     logger,
     masterKey,
   });
@@ -189,10 +199,12 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     taskService,
     taskRunner,
     imap,
+    mailDelivery,
     agent,
     async shutdown() {
       await taskRunner.stop();
       await imap.stop();
+      await mailDelivery.stop();
       await mcp.disconnectAll();
       await pool.end();
     },

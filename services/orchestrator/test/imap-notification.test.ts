@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { notificationFromAgentReply } from "../src/services/imap.js";
+import { mailDecisionFromAgentReply } from "../src/services/imap.js";
 
-test("IMAP only notifies for an explicit classifier decision", () => {
-  assert.equal(notificationFromAgentReply("IGNORE"), null);
-  assert.equal(notificationFromAgentReply("This looks important"), null);
-  assert.equal(notificationFromAgentReply("NOTIFY: Rechnung ist morgen fällig."), "Rechnung ist morgen fällig.");
-  assert.equal(notificationFromAgentReply("\n NOTIFY: Bitte Rückmeldung bis Freitag. \n"), "Bitte Rückmeldung bis Freitag.");
+test("IMAP only routes an explicit, complete classifier decision", () => {
+  assert.equal(mailDecisionFromAgentReply("IGNORE"), null);
+  assert.equal(mailDecisionFromAgentReply("This looks important"), null);
+  assert.equal(mailDecisionFromAgentReply("ACTION: URGENT\nSUMMARY:"), null);
+  assert.deepEqual(
+    mailDecisionFromAgentReply("ACTION: URGENT\nSUMMARY: Rechnung ist morgen fällig.\nDRAFT: Ich kümmere mich heute darum."),
+    { priority: "URGENT", summary: "Rechnung ist morgen fällig.", draft: "Ich kümmere mich heute darum." },
+  );
+  assert.deepEqual(
+    mailDecisionFromAgentReply("ACTION: IGNORE\nSUMMARY: \nDRAFT:"),
+    { priority: "IGNORE", summary: "", draft: null },
+  );
 });

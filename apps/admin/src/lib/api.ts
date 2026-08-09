@@ -112,6 +112,16 @@ export interface ImapAccount {
   username: string;
   mailbox: string;
   notifyChannel: "telegram" | "discord";
+  deliveryPolicy: {
+    low: "none" | "telegram" | "discord" | "call";
+    normal: "none" | "telegram" | "discord" | "call";
+    urgent: "none" | "telegram" | "discord" | "call";
+    callFallback: "none" | "telegram" | "discord";
+    callRetryCount: number;
+    callRetryDelayMinutes: number;
+    replyMode: "none" | "draft" | "ask";
+    instructions: string;
+  };
   maxBodyChars: number;
   enabled: boolean;
   hasPassword: boolean;

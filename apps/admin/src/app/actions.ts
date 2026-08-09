@@ -268,7 +268,11 @@ export async function createImapAccount(raw: ImapAccountInput): Promise<ActionRe
   return attempt("IMAP account added.", async () => {
     const input = imapAccountSchema.parse(raw);
     if (!input.password.trim()) throw new Error("The IMAP password or app password is required.");
-    await api.post("/v1/imap/accounts", input);
+    await api.post("/v1/imap/accounts", {
+      ...input,
+      // Kept for older database rows; the delivery policy is authoritative.
+      notifyChannel: input.deliveryPolicy.normal === "discord" ? "discord" : "telegram",
+    });
     revalidatePath("/imap");
     revalidatePath("/");
     return ok("Account saved. Jarvis is connecting via IMAP IDLE now.");
@@ -280,7 +284,9 @@ export async function updateImapAccount(id: string, raw: ImapAccountInput): Prom
     const input = imapAccountSchema.parse(raw);
     await api.patch(`/v1/imap/accounts/${z.string().uuid().parse(id)}`, {
       name: input.name, host: input.host, port: input.port, secure: input.secure,
-      username: input.username, mailbox: input.mailbox, notifyChannel: input.notifyChannel,
+      username: input.username, mailbox: input.mailbox,
+      notifyChannel: input.deliveryPolicy.normal === "discord" ? "discord" : "telegram",
+      deliveryPolicy: input.deliveryPolicy,
       maxBodyChars: input.maxBodyChars,
       ...(input.password.trim() ? { password: input.password } : {}),
     });

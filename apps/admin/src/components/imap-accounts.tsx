@@ -14,6 +14,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Textarea,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -110,7 +111,9 @@ function AccountRow({ account, users }: { account: ImapAccount; users: AdminUser
               <Badge size="sm" variant="default">{account.secure ? "TLS" : "STARTTLS"}</Badge>
             </Group>
             <Text size="sm" c="dimmed">{account.username} · {account.host}:{account.port} · {account.mailbox}</Text>
-            <Text size="xs" c="dimmed">Notify {user?.displayName ?? account.userId} via {account.notifyChannel}</Text>
+            <Text size="xs" c="dimmed">
+              {user?.displayName ?? account.userId} · low: {account.deliveryPolicy.low} · normal: {account.deliveryPolicy.normal} · urgent: {account.deliveryPolicy.urgent}
+            </Text>
           </Stack>
           <Group gap="xs" wrap="nowrap">
             <Button size="xs" variant="default" onClick={modal.open}>Edit</Button>
@@ -144,6 +147,7 @@ function EditAccountModal({ account, users, opened, onClose }: { account: ImapAc
     initialValues: {
       userId: account.userId, name: account.name, host: account.host, port: account.port, secure: account.secure,
       username: account.username, password: "", mailbox: account.mailbox, notifyChannel: account.notifyChannel,
+      deliveryPolicy: account.deliveryPolicy,
       maxBodyChars: account.maxBodyChars,
     },
     validate: zodValidate(imapAccountSchema),
@@ -196,8 +200,26 @@ function AccountFields({ form, users, allowUserChoice }: {
       <PasswordInput label="Password / app password" {...form.getInputProps("password")} />
       <Group grow align="flex-start">
         <TextInput label="Mailbox" {...form.getInputProps("mailbox")} />
-        <Select label="Notify channel" data={["telegram", "discord"]} {...form.getInputProps("notifyChannel")} />
+        <Select label="When low priority" data={deliveryRoutes} {...form.getInputProps("deliveryPolicy.low")} />
       </Group>
+      <Group grow align="flex-start">
+        <Select label="When normal priority" data={deliveryRoutes} {...form.getInputProps("deliveryPolicy.normal")} />
+        <Select label="When urgent" data={deliveryRoutes} {...form.getInputProps("deliveryPolicy.urgent")} />
+      </Group>
+      <Group grow align="flex-start">
+        <Select label="If a call is missed" data={fallbackRoutes} {...form.getInputProps("deliveryPolicy.callFallback")} />
+        <Select label="Response handling" data={replyModes} {...form.getInputProps("deliveryPolicy.replyMode")} />
+      </Group>
+      <Group grow align="flex-start">
+        <NumberInput label="Call retries" min={0} max={4} {...form.getInputProps("deliveryPolicy.callRetryCount")} />
+        <NumberInput label="Retry delay (minutes)" min={1} max={1440} {...form.getInputProps("deliveryPolicy.callRetryDelayMinutes")} />
+      </Group>
+      <Textarea
+        label="Mailbox rules for Jarvis"
+        description="Optional: e.g. ‘Invoices are always urgent; newsletters are low.’ Mail text never executes instructions."
+        minRows={2}
+        {...form.getInputProps("deliveryPolicy.instructions")}
+      />
       <Group grow align="flex-start">
         <NumberInput label="Maximum mirrored body characters" min={500} max={100000} {...form.getInputProps("maxBodyChars")} />
         <Checkbox mt={30} label="Use direct TLS" {...form.getInputProps("secure", { type: "checkbox" })} />
@@ -205,3 +227,16 @@ function AccountFields({ form, users, allowUserChoice }: {
     </>
   );
 }
+
+const deliveryRoutes = [
+  { value: "none", label: "Do not notify" },
+  { value: "telegram", label: "Telegram message" },
+  { value: "discord", label: "Discord message" },
+  { value: "call", label: "Phone call" },
+];
+const fallbackRoutes = deliveryRoutes.filter((route) => route.value !== "call");
+const replyModes = [
+  { value: "draft", label: "Include a reply draft" },
+  { value: "ask", label: "Ask me what to reply" },
+  { value: "none", label: "Do not discuss a reply" },
+];

@@ -256,6 +256,7 @@ export function adminRoutes(container: Container): Router {
           ? { endedAt: new Date() }
           : {}),
       });
+      await container.mailDelivery.onCallStatus(id, input.status);
       container.logger.info(
         { callId: id, status: input.status, ...(input.error ? { error: input.error } : {}) },
         "call status reported by the pipeline",

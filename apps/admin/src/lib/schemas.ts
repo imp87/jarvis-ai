@@ -150,6 +150,16 @@ export const imapAccountSchema = z.object({
   password: z.string().default(""),
   mailbox: z.string().trim().min(1, "required").max(500).default("INBOX"),
   notifyChannel: z.enum(["telegram", "discord"]).default("telegram"),
+  deliveryPolicy: z.object({
+    low: z.enum(["none", "telegram", "discord", "call"]).default("none"),
+    normal: z.enum(["none", "telegram", "discord", "call"]).default("telegram"),
+    urgent: z.enum(["none", "telegram", "discord", "call"]).default("call"),
+    callFallback: z.enum(["none", "telegram", "discord"]).default("telegram"),
+    callRetryCount: z.coerce.number().int().min(0).max(4).default(1),
+    callRetryDelayMinutes: z.coerce.number().int().min(1).max(1440).default(20),
+    replyMode: z.enum(["none", "draft", "ask"]).default("draft"),
+    instructions: z.string().trim().max(2000).default(""),
+  }),
   maxBodyChars: z.coerce.number().int().min(500).max(100_000).default(12_000),
 });
 
@@ -158,7 +168,12 @@ export type ImapAccountInput = z.infer<typeof imapAccountSchema>;
 export function emptyImapAccount(userId = ""): ImapAccountInput {
   return {
     userId, name: "", host: "", port: 993, secure: true, username: "", password: "", mailbox: "INBOX",
-    notifyChannel: "telegram", maxBodyChars: 12_000,
+    notifyChannel: "telegram",
+    deliveryPolicy: {
+      low: "none", normal: "telegram", urgent: "call", callFallback: "telegram",
+      callRetryCount: 1, callRetryDelayMinutes: 20, replyMode: "draft", instructions: "",
+    },
+    maxBodyChars: 12_000,
   };
 }
 

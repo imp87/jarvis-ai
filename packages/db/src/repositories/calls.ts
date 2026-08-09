@@ -101,6 +101,26 @@ export class CallRepository {
     );
   }
 
+  async get(id: string): Promise<CallLogRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, conversation_id, to_number, reason, status, blocked_reason, created_at
+         FROM call_logs WHERE id = $1`,
+      [id],
+    );
+    const r = rows[0] as Record<string, unknown> | undefined;
+    return r
+      ? {
+          id: r["id"] as string,
+          conversationId: (r["conversation_id"] as string | null) ?? null,
+          toNumber: r["to_number"] as string,
+          reason: r["reason"] as string,
+          status: r["status"] as CallStatus,
+          blockedReason: (r["blocked_reason"] as string | null) ?? null,
+          createdAt: r["created_at"] as Date,
+        }
+      : null;
+  }
+
   async list(limit = 50): Promise<CallLogRow[]> {
     const { rows } = await this.pool.query(
       `SELECT id, conversation_id, to_number, reason, status, blocked_reason, created_at
