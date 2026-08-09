@@ -188,44 +188,102 @@ async function runSearch(
 }
 
 /**
- * DuckDuckGo's no-JavaScript HTML endpoint. Chosen as the default because it
- * needs no account and no key, which is what makes web search work on a fresh
- * install. The price is that the result markup is a scraping target and can
- * change without notice — hence `WEB_SEARCH_PROVIDER`, so a broken scrape is a
- * configuration change rather than a code change.
+ * DuckDuckGo's two no-JavaScript endpoints. Both need no account and no key,
+ * which is what makes web search work on a fresh install; both are scraping
+ * targets whose markup can change without notice, and both answer a server
+ * they dislike with a plausible-looking 200 that simply has no results in it.
+ *
+ * The lite endpoint comes first: it is a third smaller and its markup is a
+ * plain table rather than the full result page. The classic HTML endpoint is
+ * tried afterwards, because the two are rate-limited and challenged
+ * independently — one being blocked does not mean the other is.
  */
+const DUCKDUCKGO_ENDPOINTS = [
+  { url: "https://lite.duckduckgo.com/lite/", link: "result-link", snippet: "result-snippet" },
+  { url: "https://html.duckduckgo.com/html/", link: "result__a", snippet: "result__snippet" },
+] as const;
+
 async function searchDuckDuckGo(
   query: string,
   limit: number,
   opts: ResolvedOptions,
 ): Promise<SearchHit[]> {
-  const { response } = await fetchGuarded("https://html.duckduckgo.com/html/", opts, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ q: query }).toString(),
-  });
-  if (!response.ok) {
-    throw new Error(`DuckDuckGo returned HTTP ${response.status}`);
+  const problems: string[] = [];
+
+  for (const endpoint of DUCKDUCKGO_ENDPOINTS) {
+    const host = new URL(endpoint.url).hostname;
+    try {
+      const { response } = await fetchGuarded(endpoint.url, opts, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ q: query }).toString(),
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        problems.push(`${host} answered HTTP ${response.status}`);
+        continue;
+      }
+
+      const { text } = await readBoundedBody(response, opts.maxBytes);
+      const hits = parseDuckDuckGoMarkup(text, endpoint.link, endpoint.snippet);
+      if (hits.length > 0) return hits.slice(0, limit);
+
+      // A genuinely unmatched query still comes back with results — DuckDuckGo
+      // broadens rather than returning nothing — so a page without a single
+      // result row means the request was refused, not that the web is empty.
+      // The excerpt goes to the log because that is where the operator will
+      // look, and it is the only way to tell a bot check from a markup change.
+      problems.push(`${host} returned ${text.length} bytes without a single result`);
+      opts.logger.warn(
+        {
+          endpoint: endpoint.url,
+          bytes: text.length,
+          title: extractTitle(text),
+          excerpt: truncate(htmlToText(text), 400),
+        },
+        "DuckDuckGo returned a page with no parsable results",
+      );
+    } catch (err) {
+      problems.push(`${host}: ${describe(err)}`);
+    }
   }
-  const { text } = await readBoundedBody(response, opts.maxBytes);
-  return parseDuckDuckGoResults(text).slice(0, limit);
+
+  throw new Error(
+    `DuckDuckGo returned no usable results (${problems.join("; ")}). On a server this is ` +
+      `normally a bot check on its IP address rather than an empty result set. Switch the ` +
+      `provider: WEB_SEARCH_PROVIDER=brave with BRAVE_SEARCH_API_KEY, or ` +
+      `WEB_SEARCH_PROVIDER=searxng with SEARXNG_URL pointing at your own instance.`,
+  );
 }
 
-/** Extracts result rows from the HTML endpoint's markup. Exported for tests. */
+/** Extracts result rows from the classic HTML endpoint. Exported for tests. */
 export function parseDuckDuckGoResults(html: string): SearchHit[] {
-  const snippets: Array<{ at: number; text: string }> = [];
-  for (const match of html.matchAll(
-    /class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td|span)>/gi,
-  )) {
-    snippets.push({ at: match.index ?? 0, text: htmlToText(match[1] ?? "") });
-  }
+  return parseDuckDuckGoMarkup(html, "result__a", "result__snippet");
+}
+
+/** Extracts result rows from the lite endpoint's table markup. */
+export function parseDuckDuckGoLiteResults(html: string): SearchHit[] {
+  return parseDuckDuckGoMarkup(html, "result-link", "result-snippet");
+}
+
+/**
+ * The two endpoints differ only in their class names — and in quoting: the
+ * lite template emits `class='result-link'` with single quotes, which is why
+ * attributes are read through a helper instead of inline in one big pattern.
+ */
+function parseDuckDuckGoMarkup(
+  html: string,
+  linkClass: string,
+  snippetClass: string,
+): SearchHit[] {
+  const snippets = collectByClass(html, snippetClass);
 
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
-  for (const match of html.matchAll(
-    /<a\b([^>]*\bclass="[^"]*\bresult__a\b[^"]*"[^>]*)>([\s\S]*?)<\/a>/gi,
-  )) {
-    const href = /\bhref="([^"]*)"/i.exec(match[1] ?? "")?.[1];
+  for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const attrs = match[1] ?? "";
+    if (!hasClass(attrs, linkClass)) continue;
+    const href = readAttribute(attrs, "href");
     const url = href ? unwrapDuckDuckGoLink(href) : undefined;
     if (!url || seen.has(url)) continue;
     seen.add(url);
@@ -240,6 +298,37 @@ export function parseDuckDuckGoResults(html: string): SearchHit[] {
     });
   }
   return hits;
+}
+
+/**
+ * Text of every element carrying `className`, with its position in the source.
+ *
+ * Only opening tags are matched, and the closing tag is then located by hand.
+ * Matching whole `<tag>…</tag>` pairs with one global pattern looks tidier but
+ * is wrong here: a non-greedy body stops at the first close tag of any depth,
+ * so an enclosing `<div class="result">` swallows the very snippet inside it
+ * and the regex cursor then skips past it entirely.
+ */
+function collectByClass(html: string, className: string): Array<{ at: number; text: string }> {
+  const lower = html.toLowerCase();
+  const found: Array<{ at: number; text: string }> = [];
+  for (const match of html.matchAll(/<(a|div|td|span|p)\b([^>]*)>/gi)) {
+    if (!hasClass(match[2] ?? "", className)) continue;
+    const at = match.index ?? 0;
+    const start = at + match[0].length;
+    const end = lower.indexOf(`</${(match[1] ?? "").toLowerCase()}`, start);
+    found.push({ at, text: htmlToText(html.slice(start, end === -1 ? undefined : end)) });
+  }
+  return found;
+}
+
+function readAttribute(attrs: string, name: string): string | undefined {
+  return new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(attrs)?.[1];
+}
+
+function hasClass(attrs: string, className: string): boolean {
+  const value = readAttribute(attrs, "class");
+  return value !== undefined && value.split(/\s+/).includes(className);
 }
 
 /**
