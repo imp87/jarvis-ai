@@ -77,6 +77,43 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
       },
     },
     {
+      name: "create_reply_draft",
+      description:
+        "Create a pending email reply draft for one locally mirrored message. Never sends mail. " +
+        "Use it when the current user asks to answer or draft a reply to a specific mail; then show the resulting draft ID and ask for explicit sending approval.",
+      sideEffects: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          messageId: { type: "string", description: "Message ID returned by search_messages." },
+          body: { type: "string", description: "The German reply body requested or approved by the user." },
+        },
+        required: ["messageId", "body"],
+      },
+      async execute(args, ctx) {
+        const messageId = typeof args["messageId"] === "string" ? args["messageId"].trim() : "";
+        const body = typeof args["body"] === "string" ? args["body"].trim() : "";
+        if (!messageId || !body) return { content: "Nachrichten-ID und Antworttext sind erforderlich.", isError: true };
+        if (body.length > 8_000) return { content: "Der Antworttext ist zu lang.", isError: true };
+        const message = await emails.getMessage(ctx.userId, messageId);
+        if (!message) return { content: "E-Mail nicht gefunden.", isError: true };
+        const draft = await emails.createReplyDraft({
+          accountId: message.accountId,
+          messageId: message.id,
+          userId: ctx.userId,
+          toAddress: extractReplyAddress(message.fromAddress),
+          subject: replySubject(message.subject),
+          bodyText: body,
+          inReplyTo: message.messageId,
+        });
+        return {
+          content:
+            `Antwortentwurf ${draft.id} erstellt für ${draft.toAddress}.\n\n${draft.bodyText}\n\n` +
+            `Zum Versenden braucht es eine klare Freigabe, z. B. „Sende Entwurf ${draft.id}“.`,
+        };
+      },
+    },
+    {
       name: "get_message",
       description: "Read one locally mirrored IMAP message by the ID returned from search_messages.",
       inputSchema: {
@@ -101,6 +138,15 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
 function isExplicitSendApproval(value: string): boolean {
   const normalized = value.toLowerCase();
   return /\b(sende|verschick(?:e)?|schick(?:e)?\s+(?:die|den|das|ihn|sie|es)|abschick(?:e)?|send\s+it)\b/.test(normalized);
+}
+
+function extractReplyAddress(value: string): string {
+  const bracketed = /<([^<>\s]+@[^<>\s]+)>/.exec(value)?.[1];
+  return bracketed ?? /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/.exec(value)?.[0] ?? value.trim();
+}
+
+function replySubject(subject: string): string {
+  return /^re:/i.test(subject.trim()) ? subject.trim() : `Re: ${subject.trim()}`;
 }
 
 function preview(value: string): string {
