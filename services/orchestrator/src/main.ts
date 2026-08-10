@@ -29,6 +29,7 @@ const server = app.listen(config.env.ORCHESTRATOR_PORT, () => {
   container.taskRunner.start();
   container.mailDelivery.start();
   void container.imap.start();
+  void container.caldav.start();
 });
 
 let shuttingDown = false;

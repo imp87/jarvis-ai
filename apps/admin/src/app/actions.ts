@@ -12,6 +12,7 @@ import {
   endpointSchema,
   mcpServerSchema,
   imapAccountSchema,
+  caldavAccountSchema,
   taskSchema,
   type TaskInput,
   type AuthInput,
@@ -19,6 +20,7 @@ import {
   type EndpointInput,
   type McpServerInput,
   type ImapAccountInput,
+  type CalDavAccountInput,
 } from "@/lib/schemas";
 import { SESSION_COOKIE, isCorrectPassword, issueSessionToken } from "@/lib/session";
 
@@ -368,6 +370,67 @@ export async function deleteImapAccount(id: string): Promise<ActionResult> {
   return attempt("IMAP account removed.", async () => {
     await api.delete(`/v1/imap/accounts/${z.string().uuid().parse(id)}`);
     revalidatePath("/imap");
+    revalidatePath("/");
+  });
+}
+
+// --- CalDAV ----------------------------------------------------------------
+
+export async function createCalDavAccount(raw: CalDavAccountInput): Promise<ActionResult> {
+  return attempt("Calendar account added.", async () => {
+    const input = caldavAccountSchema.parse(raw);
+    if (!input.password.trim()) throw new Error("The CalDAV password or app-specific password is required.");
+    await api.post("/v1/caldav/accounts", input);
+    revalidatePath("/calendar");
+    revalidatePath("/");
+    return ok("Account saved. Jarvis discovered its calendars.");
+  });
+}
+
+export async function updateCalDavAccount(id: string, raw: CalDavAccountInput): Promise<ActionResult> {
+  return attempt("Calendar account updated.", async () => {
+    const input = caldavAccountSchema.parse(raw);
+    await api.patch(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`, {
+      name: input.name,
+      baseUrl: input.baseUrl,
+      username: input.username,
+      timezone: input.timezone,
+      // An empty field means "keep the stored password", never "clear it".
+      ...(input.password.trim() ? { password: input.password } : {}),
+    });
+    revalidatePath("/calendar");
+    revalidatePath("/");
+    return ok("Saved. Calendars were rediscovered.");
+  });
+}
+
+export async function refreshCalDavAccount(id: string): Promise<ActionResult> {
+  return attempt("Calendars rediscovered.", async () => {
+    await api.post(`/v1/caldav/accounts/${z.string().uuid().parse(id)}/refresh`, {});
+    revalidatePath("/calendar");
+  });
+}
+
+export async function setCalDavAccountEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`, { enabled });
+    revalidatePath("/calendar");
+    revalidatePath("/");
+    return ok(enabled ? "Account enabled and discovering." : "Account disabled.");
+  });
+}
+
+export async function setCalendarEnabled(id: string, enabled: boolean): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch(`/v1/caldav/calendars/${z.string().uuid().parse(id)}`, { enabled });
+    revalidatePath("/calendar");
+  });
+}
+
+export async function deleteCalDavAccount(id: string): Promise<ActionResult> {
+  return attempt("Calendar account removed.", async () => {
+    await api.delete(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`);
+    revalidatePath("/calendar");
     revalidatePath("/");
   });
 }

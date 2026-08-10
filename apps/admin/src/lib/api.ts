@@ -146,6 +146,31 @@ export interface ImapAccount {
   lastError: string | null;
 }
 
+export interface CalDavCalendar {
+  id: string;
+  displayName: string;
+  url: string;
+  color: string | null;
+  readOnly: boolean;
+  supportsEvents: boolean;
+  enabled: boolean;
+}
+
+export interface CalDavAccount {
+  id: string;
+  userId: string;
+  name: string;
+  baseUrl: string;
+  username: string;
+  timezone: string;
+  enabled: boolean;
+  hasPassword: boolean;
+  state: "stopped" | "discovering" | "ready" | "error";
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  calendars: CalDavCalendar[];
+}
+
 export interface ConnectorEndpoint {
   id: string;
   name: string;
@@ -265,3 +290,4 @@ export const getUsers = () => api.get<{ users: AdminUser[] }>("/v1/users");
 export const getConnectors = () => api.get<{ connectors: Connector[] }>("/v1/connectors");
 export const getStatus = () => api.get<Status>("/v1/status");
 export const getImapAccounts = () => api.get<{ accounts: ImapAccount[] }>("/v1/imap/accounts");
+export const getCalDavAccounts = () => api.get<{ accounts: CalDavAccount[] }>("/v1/caldav/accounts");

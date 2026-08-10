@@ -33,6 +33,8 @@ export const envSchema = baseEnvSchema.extend({
   /** Base URL of a self-hosted SearXNG instance, e.g. http://searxng:8080. */
   SEARXNG_URL: z.string().url().optional(),
   WEB_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** Per-request budget for CalDAV discovery and calendar queries. */
+  CALDAV_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   /** Ceiling on a downloaded body before text extraction. */
   WEB_FETCH_MAX_BYTES: z.coerce.number().int().positive().default(2_000_000),
 })

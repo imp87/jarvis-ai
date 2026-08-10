@@ -200,6 +200,48 @@ export function emptyImapAccount(userId = ""): ImapAccountInput {
   };
 }
 
+// --- CalDAV ----------------------------------------------------------------
+
+export const caldavAccountSchema = z.object({
+  userId: z.string().uuid("choose a user"),
+  name: z.string().trim().min(1, "required").max(80).regex(/^[\w .-]+$/, "letters, digits, spaces, . _ and - only"),
+  baseUrl: z
+    .string()
+    .trim()
+    .min(1, "required")
+    .max(500)
+    .refine((value) => /^https?:\/\//i.test(value), "must start with http:// or https://"),
+  username: z.string().trim().min(1, "required").max(500),
+  password: z.string().default(""),
+  timezone: z
+    .string()
+    .trim()
+    .min(1, "required")
+    .max(64)
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "must be an IANA timezone such as Europe/Berlin"),
+});
+
+export type CalDavAccountInput = z.infer<typeof caldavAccountSchema>;
+
+export function emptyCalDavAccount(userId = ""): CalDavAccountInput {
+  return {
+    userId,
+    name: "",
+    // iCloud is the case this was built for; discovery handles the rest.
+    baseUrl: "https://caldav.icloud.com",
+    username: "",
+    password: "",
+    timezone: "Europe/Berlin",
+  };
+}
+
 // --- Connectors ------------------------------------------------------------
 
 export const connectorSchema = z.object({

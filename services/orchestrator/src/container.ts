@@ -1,4 +1,5 @@
 import {
+  CalendarRepository,
   CallRepository,
   ConversationRepository,
   EmailRepository,
@@ -27,7 +28,9 @@ import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
 import { buildEmbeddedImapTools } from "./agent/tools/imap.js";
 import { buildEmbeddedWebTools } from "./agent/tools/web.js";
+import { buildEmbeddedCalendarTools } from "./agent/tools/calendar.js";
 import { ImapService } from "./services/imap.js";
+import { CalDavService } from "./services/caldav.js";
 import { MailDeliveryService } from "./services/mail-delivery.js";
 import { SmtpService } from "./services/smtp.js";
 import { McpOAuthService } from "./services/mcp-oauth.js";
@@ -46,6 +49,7 @@ export interface Container {
     settings: SettingsRepository;
     tasks: TaskRepository;
     emails: EmailRepository;
+    calendars: CalendarRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -58,6 +62,7 @@ export interface Container {
   taskService: TaskService;
   taskRunner: TaskRunner;
   imap: ImapService;
+  caldav: CalDavService;
   mailDelivery: MailDeliveryService;
   smtp: SmtpService;
   agent: AgentLoop;
@@ -79,6 +84,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     settings: new SettingsRepository(pool),
     tasks: new TaskRepository(pool),
     emails: new EmailRepository(pool),
+    calendars: new CalendarRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -138,6 +144,22 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     name: "imap",
     description: "Your locally mirrored IMAP mail. Read-only; it never sends or changes mail.",
     tools: buildEmbeddedImapTools(repos.emails, smtp),
+  });
+  // Calendars are read live rather than mirrored, so this service holds no
+  // worker — only the cached result of collection discovery.
+  const caldav = new CalDavService({
+    calendars: repos.calendars,
+    masterKey,
+    logger,
+    defaultTimezone: env.QUIET_HOURS_TIMEZONE,
+    timeoutMs: env.CALDAV_TIMEOUT_MS,
+  });
+  mcp.registerEmbeddedServer({
+    name: "calendar",
+    description:
+      "The owner's calendars over CalDAV, read-only. This is the only source of truth for what is " +
+      "actually scheduled — appointments, all-day events and their times.",
+    tools: buildEmbeddedCalendarTools(caldav),
   });
   // Live web access. Embedded rather than a registry row: with the default
   // provider it needs no credentials, so "what is the weather" works without
@@ -234,12 +256,14 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     taskService,
     taskRunner,
     imap,
+    caldav,
     mailDelivery,
     smtp,
     agent,
     async shutdown() {
       await taskRunner.stop();
       await imap.stop();
+      await caldav.stop();
       await mailDelivery.stop();
       await mcp.disconnectAll();
       await pool.end();
