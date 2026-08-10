@@ -21,6 +21,8 @@ export interface CalendarEvent {
   status: string | null;
   /** True when the server returned a master event with an RRULE unexpanded. */
   recurring: boolean;
+  /** RFC 5545 revision counter; an update must write a higher one. */
+  sequence: number;
 }
 
 interface RawProperty {
@@ -117,6 +119,7 @@ function buildEvent(properties: RawProperty[], fallbackTimeZone: string): Calend
     allDay: start.allDay,
     status: find("STATUS")?.value?.toUpperCase() ?? null,
     recurring: Boolean(find("RRULE")),
+    sequence: Number.parseInt(find("SEQUENCE")?.value ?? "0", 10) || 0,
   };
 }
 

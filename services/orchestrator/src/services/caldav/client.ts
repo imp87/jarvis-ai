@@ -24,14 +24,33 @@ export class CalDavError extends Error {
   }
 }
 
-export interface EventQueryResult {
+/**
+ * One `.ics` resource on the server, with the identity needed to change it.
+ *
+ * A single resource can hold several VEVENTs — a recurrence master plus its
+ * overrides, or a server-expanded series — so events are grouped rather than
+ * flattened. The href and ETag are what make a safe update possible: the href
+ * addresses the resource and the ETag pins the version being replaced.
+ */
+export interface EventResource {
+  href: string;
+  etag: string | null;
   events: CalendarEvent[];
+}
+
+export interface EventQueryResult {
+  resources: EventResource[];
   /**
    * False when the server refused `<expand>` and returned master events. The
    * caller must then treat recurring entries as unresolved rather than as
    * instances that genuinely fall in the window.
    */
   expandedByServer: boolean;
+}
+
+export interface WriteResult {
+  href: string;
+  etag: string | null;
 }
 
 /**
@@ -204,18 +223,92 @@ export class CalDavClient {
       body = await this.report(calendarUrl, query(false));
     }
 
-    const events: CalendarEvent[] = [];
+    const resources: EventResource[] = [];
     for (const response of findElements(body, "response")) {
-      const data = textOf(okProps(response.inner), "calendar-data");
+      const href = textOf(response.inner, "href");
+      if (!href) continue;
+      const props = okProps(response.inner);
+      const data = textOf(props, "calendar-data");
       if (!data) continue;
-      events.push(...parseVEvents(data, fallbackTimeZone));
+      const events = parseVEvents(data, fallbackTimeZone);
+      if (events.length === 0) continue;
+      resources.push({
+        href: resolve(href, calendarUrl),
+        etag: normaliseEtag(textOf(props, "getetag")),
+        events,
+      });
     }
 
     // A server that silently ignored <expand> is indistinguishable from one
     // that honoured it, except that masters keep their RRULE.
-    if (expandedByServer && events.some((event) => event.recurring)) expandedByServer = false;
+    const anyRecurring = resources.some((resource) => resource.events.some((event) => event.recurring));
+    if (expandedByServer && anyRecurring) expandedByServer = false;
 
-    return { events, expandedByServer };
+    return { resources, expandedByServer };
+  }
+
+  /**
+   * Creates a new event resource.
+   *
+   * `If-None-Match: *` makes the PUT fail rather than overwrite if the name is
+   * somehow already taken — with a random UID that should be impossible, which
+   * is exactly why a silent overwrite would be the worst way to find out.
+   */
+  async createEvent(calendarUrl: string, uid: string, ics: string): Promise<WriteResult> {
+    const href = new URL(`${encodeURIComponent(uid)}.ics`, ensureTrailingSlash(calendarUrl)).toString();
+    const response = await this.send("PUT", href, {
+      body: ics,
+      headers: { "Content-Type": "text/calendar; charset=utf-8", "If-None-Match": "*" },
+    });
+    if (response.status === 412) {
+      throw new CalDavError("An event with this identifier already exists on the server.", 412);
+    }
+    if (!response.ok) {
+      throw new CalDavError(`Creating the event failed with HTTP ${response.status}`, response.status);
+    }
+    return { href, etag: normaliseEtag(response.headers.get("etag")) };
+  }
+
+  /**
+   * Replaces an existing event resource.
+   *
+   * `If-Match` is the whole point: without it, an edit made on the phone
+   * between reading and writing would be silently discarded.
+   */
+  async updateEvent(href: string, etag: string | null, ics: string): Promise<WriteResult> {
+    const response = await this.send("PUT", href, {
+      body: ics,
+      headers: {
+        "Content-Type": "text/calendar; charset=utf-8",
+        ...(etag ? { "If-Match": etag } : {}),
+      },
+    });
+    if (response.status === 412) {
+      throw new CalDavError(
+        "The appointment changed on the server since it was read. Nothing was written — read it again.",
+        412,
+      );
+    }
+    if (!response.ok) {
+      throw new CalDavError(`Updating the event failed with HTTP ${response.status}`, response.status);
+    }
+    return { href, etag: normaliseEtag(response.headers.get("etag")) };
+  }
+
+  async deleteEvent(href: string, etag: string | null): Promise<void> {
+    const response = await this.send("DELETE", href, {
+      headers: etag ? { "If-Match": etag } : {},
+    });
+    if (response.status === 412) {
+      throw new CalDavError(
+        "The appointment changed on the server since it was read. Nothing was deleted — read it again.",
+        412,
+      );
+    }
+    // A resource that is already gone is the outcome the caller wanted.
+    if (!response.ok && response.status !== 404) {
+      throw new CalDavError(`Deleting the event failed with HTTP ${response.status}`, response.status);
+    }
   }
 
   private async propfind(url: string, depth: 0 | 1, properties: string[]): Promise<string> {
@@ -233,39 +326,57 @@ ${properties.map((name) => `    <${prefixFor(name)}:${name}/>`).join("\n")}
   }
 
   private async request(method: string, url: string, body: string, depth: string): Promise<string> {
-    const credentials = Buffer.from(`${this.options.username}:${this.options.password}`, "utf8").toString("base64");
-    let response: Response;
-    try {
-      response = await this.fetchImpl(url, {
-        method,
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          "Content-Type": 'application/xml; charset="utf-8"',
-          Depth: depth,
-          // Some servers answer text/html to a request that accepts anything.
-          Accept: "application/xml, text/xml",
-          "User-Agent": "Jarvis/1.0 CalDAV",
-        },
-        body,
-        signal: AbortSignal.timeout(this.timeoutMs),
-        redirect: "follow",
-      });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      throw new CalDavError(`${method} ${url} failed: ${reason}`);
-    }
-
-    if (response.status === 401 || response.status === 403) {
-      throw new CalDavError(
-        `The server rejected the credentials (HTTP ${response.status}). ` +
-          "iCloud needs an app-specific password, not the Apple ID password.",
-        response.status,
-      );
-    }
+    const response = await this.send(method, url, {
+      body,
+      headers: {
+        "Content-Type": 'application/xml; charset="utf-8"',
+        Depth: depth,
+        // Some servers answer text/html to a request that accepts anything.
+        Accept: "application/xml, text/xml",
+      },
+    });
     if (!response.ok && response.status !== 207) {
       throw new CalDavError(`${method} ${url} returned HTTP ${response.status}`, response.status);
     }
     return this.readCapped(response, url);
+  }
+
+  /**
+   * One authenticated request. Status is left to the caller apart from 401 and
+   * 403, which mean the same thing everywhere and are worth one clear message
+   * rather than a different phrasing at each call site.
+   */
+  private async send(
+    method: string,
+    url: string,
+    options: { body?: string; headers?: Record<string, string> },
+  ): Promise<Response> {
+    const credentials = Buffer.from(`${this.options.username}:${this.options.password}`, "utf8").toString("base64");
+    try {
+      const response = await this.fetchImpl(url, {
+        method,
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          "User-Agent": "Jarvis/1.0 CalDAV",
+          ...options.headers,
+        },
+        ...(options.body !== undefined ? { body: options.body } : {}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+        redirect: "follow",
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw new CalDavError(
+          `The server rejected the credentials (HTTP ${response.status}). ` +
+            "iCloud needs an app-specific password, not the Apple ID password.",
+          response.status,
+        );
+      }
+      return response;
+    } catch (err) {
+      if (err instanceof CalDavError) throw err;
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new CalDavError(`${method} ${url} failed: ${reason}`);
+    }
   }
 
   private async readCapped(response: Response, url: string): Promise<string> {
@@ -344,6 +455,19 @@ function resolve(href: string, relativeTo: string): string {
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
+}
+
+function ensureTrailingSlash(url: string): string {
+  return url.endsWith("/") ? url : `${url}/`;
+}
+
+/**
+ * ETags travel quoted, and a weak validator carries a `W/` prefix. Both are
+ * kept verbatim: an If-Match must echo exactly what the server sent.
+ */
+function normaliseEtag(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function lastPathSegment(url: string): string {

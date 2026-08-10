@@ -21,13 +21,26 @@ interface Recorded {
   url: string;
   body: string;
   depth: string | null;
+  ifMatch: string | null;
+  ifNoneMatch: string | null;
 }
 
 /**
  * A small stand-in for an iCloud-shaped server: principal discovery, then the
  * calendar home, then the collections, then a calendar-query.
  */
-function fakeServer(options: { expandSupported?: boolean; unauthorized?: boolean } = {}): {
+function fakeServer(
+  options: {
+    expandSupported?: boolean;
+    unauthorized?: boolean;
+    /** Emulates a concurrent edit: the If-Match no longer matches. */
+    etagConflict?: boolean;
+    /** Returns a recurring master instead of a plain event. */
+    recurring?: boolean;
+    /** Two events sharing a title, to exercise the ambiguity path. */
+    duplicates?: boolean;
+  } = {},
+): {
   fetchImpl: typeof fetch;
   calls: Recorded[];
 } {
@@ -40,9 +53,24 @@ function fakeServer(options: { expandSupported?: boolean; unauthorized?: boolean
     const method = init?.method ?? "GET";
     const body = String(init?.body ?? "");
     const headers = new Headers(init?.headers as HeadersInit);
-    calls.push({ method, url, body, depth: headers.get("Depth") });
+    calls.push({
+      method,
+      url,
+      body,
+      depth: headers.get("Depth"),
+      ifMatch: headers.get("If-Match"),
+      ifNoneMatch: headers.get("If-None-Match"),
+    });
 
     if (options.unauthorized) return new Response("nope", { status: 401 });
+
+    if (method === "PUT" || method === "DELETE") {
+      if (options.etagConflict) return new Response("changed", { status: 412 });
+      return new Response(null, {
+        status: method === "PUT" ? 201 : 204,
+        headers: method === "PUT" ? { etag: '"new-etag"' } : {},
+      });
+    }
 
     if (method === "PROPFIND" && url.endsWith("/") && url.includes("caldav.example.com/")) {
       const path = new URL(url).pathname;
@@ -92,6 +120,7 @@ function fakeServer(options: { expandSupported?: boolean; unauthorized?: boolean
       if (body.includes("<c:expand") && options.expandSupported === false) {
         return new Response("expand not supported", { status: 403 });
       }
+      const rrule = options.recurring ? "\nRRULE:FREQ=WEEKLY;BYDAY=MO" : "";
       return xml(`<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
         <D:response><D:href>/calendars/steven/privat/1.ics</D:href><D:propstat><D:prop>
           <C:calendar-data>BEGIN:VCALENDAR
@@ -101,7 +130,7 @@ UID:1@example.com
 SUMMARY:Zahnarzt
 LOCATION:Hauptstr. 1
 DTSTART:20260810T070000Z
-DTEND:20260810T080000Z
+DTEND:20260810T080000Z${rrule}
 END:VEVENT
 END:VCALENDAR</C:calendar-data>
           <D:getetag>"abc"</D:getetag>
@@ -110,10 +139,11 @@ END:VCALENDAR</C:calendar-data>
           <C:calendar-data>BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:2@example.com
-SUMMARY:Urlaub
-DTSTART;VALUE=DATE:20260810
+SUMMARY:${options.duplicates ? "Zahnarzt" : "Urlaub"}
+${options.duplicates ? "DTSTART:20260810T130000Z\nDTEND:20260810T140000Z" : "DTSTART;VALUE=DATE:20260810"}
 END:VEVENT
 END:VCALENDAR</C:calendar-data>
+          <D:getetag>"def"</D:getetag>
         </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
       </D:multistatus>`);
     }
@@ -195,9 +225,12 @@ test("a time-range query is expanded by the server and parsed into instances", a
   );
 
   assert.equal(result.expandedByServer, true);
-  assert.equal(result.events.length, 2);
-  assert.equal(result.events[0]?.summary, "Zahnarzt");
-  assert.equal(result.events[1]?.allDay, true);
+  assert.equal(result.resources.length, 2);
+  assert.equal(result.resources[0]?.events[0]?.summary, "Zahnarzt");
+  assert.equal(result.resources[1]?.events[0]?.allDay, true);
+  // The href and ETag are what make a safe later update possible.
+  assert.equal(result.resources[0]?.href, "https://caldav.example.com/calendars/steven/privat/1.ics");
+  assert.equal(result.resources[0]?.etag, '"abc"');
 
   const report = calls.find((call) => call.method === "REPORT");
   assert.match(report?.body ?? "", /<c:time-range start="20260810T000000Z" end="20260811T000000Z"\/>/);
@@ -214,10 +247,56 @@ test("a server that refuses <expand> is retried plain and the result flagged", a
   );
 
   assert.equal(result.expandedByServer, false);
-  assert.equal(result.events.length, 2);
+  assert.equal(result.resources.length, 2);
   const reports = calls.filter((call) => call.method === "REPORT");
   assert.equal(reports.length, 2);
   assert.ok(!reports[1]?.body.includes("<c:expand"));
+});
+
+test("creating an event PUTs a valid object and refuses to clobber an existing one", async () => {
+  const { fetchImpl, calls } = fakeServer();
+  const written = await client(fetchImpl).createEvent(
+    "https://caldav.example.com/calendars/steven/privat/",
+    "uid-1@jarvis",
+    "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+  );
+
+  assert.equal(written.href, "https://caldav.example.com/calendars/steven/privat/uid-1%40jarvis.ics");
+  assert.equal(written.etag, '"new-etag"');
+  const put = calls.find((call) => call.method === "PUT");
+  // Without If-None-Match a UID collision would silently overwrite.
+  assert.equal(put?.ifNoneMatch, "*");
+});
+
+test("updating and deleting send If-Match so a concurrent edit is never lost", async () => {
+  const { fetchImpl, calls } = fakeServer();
+  const target = "https://caldav.example.com/calendars/steven/privat/1.ics";
+  await client(fetchImpl).updateEvent(target, '"abc"', "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
+  await client(fetchImpl).deleteEvent(target, '"abc"');
+
+  assert.equal(calls.find((call) => call.method === "PUT")?.ifMatch, '"abc"');
+  assert.equal(calls.find((call) => call.method === "DELETE")?.ifMatch, '"abc"');
+});
+
+test("a 412 is reported as a concurrent change, not as a generic failure", async () => {
+  const { fetchImpl } = fakeServer({ etagConflict: true });
+  const target = "https://caldav.example.com/calendars/steven/privat/1.ics";
+  await assert.rejects(
+    () => client(fetchImpl).updateEvent(target, '"stale"', "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
+    (err: unknown) => {
+      assert.ok(err instanceof CalDavError);
+      assert.equal(err.status, 412);
+      assert.match(err.message, /changed on the server/);
+      return true;
+    },
+  );
+});
+
+test("deleting something already gone is treated as success", async () => {
+  const fetchImpl = (async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
+  await assert.doesNotReject(() =>
+    client(fetchImpl).deleteEvent("https://caldav.example.com/calendars/steven/privat/1.ics", null),
+  );
 });
 
 /** In-memory stand-in for the repository, so the tools can run without a database. */
@@ -320,6 +399,131 @@ test("list_events rejects a malformed date instead of silently using today", asy
   const listEvents = tools.find((tool) => tool.name === "list_events");
   const result = await listEvents?.execute({ from: "morgen" }, ctx);
   assert.equal(result?.isError, true);
+});
+
+function writeTool(service: CalDavService, name: string) {
+  const tool = buildEmbeddedCalendarTools(service).find((entry) => entry.name === name);
+  assert.ok(tool, `${name} must exist`);
+  return tool;
+}
+
+/** A tool context carrying what the user actually just said. */
+const asked = (text: string): ToolContext => ({
+  conversationId: "conv-1",
+  userId: "user-1",
+  lastUserText: text,
+});
+
+test("create_event writes the appointment and confirms it in words", async () => {
+  const { fetchImpl, calls } = fakeServer();
+  const result = await writeTool(serviceWith(fetchImpl), "create_event").execute(
+    { title: "Zahnarzt", date: "2026-08-18", start_time: "09:00", location: "Hauptstr. 1" },
+    asked("Trag mir am 18. um neun den Zahnarzt ein."),
+  );
+
+  const put = calls.find((call) => call.method === "PUT");
+  assert.ok(put, "an event must have been written");
+  // 09:00 Berlin is 07:00 UTC — the account's zone decides, not the server's.
+  assert.match(put.body, /DTSTART:20260818T070000Z/);
+  assert.match(put.body, /DTEND:20260818T080000Z/);
+  assert.match(put.body, /SUMMARY:Zahnarzt/);
+  assert.match(String(result.content), /Dienstag, 18\.08\.2026, 09:00–10:00 — Zahnarzt/);
+  assert.ok(!String(result.content).includes("@jarvis"), "the UID must never reach the user");
+});
+
+test("a write is refused outright when the user's message did not ask for one", async () => {
+  for (const [tool, args] of [
+    ["create_event", { title: "X", date: "2026-08-18", start_time: "09:00" }],
+    ["update_event", { date: "2026-08-10", title: "Zahnarzt", new_start_time: "11:00" }],
+    ["delete_event", { date: "2026-08-10", title: "Zahnarzt" }],
+  ] as const) {
+    const { fetchImpl, calls } = fakeServer();
+    const result = await writeTool(serviceWith(fetchImpl), tool).execute(
+      args,
+      // The user asked to be read to; a mail or event body wanting a change
+      // must not be able to turn that into a write.
+      asked("Was steht am 18. August an?"),
+    );
+    assert.equal(result.isError, true, tool);
+    assert.equal(
+      calls.filter((call) => call.method === "PUT" || call.method === "DELETE").length,
+      0,
+      `${tool} must not touch the server`,
+    );
+  }
+});
+
+test("update_event asks which appointment is meant instead of guessing", async () => {
+  const { fetchImpl, calls } = fakeServer({ duplicates: true });
+  const result = await writeTool(serviceWith(fetchImpl), "update_event").execute(
+    { date: "2026-08-10", title: "Zahnarzt", new_start_time: "16:00" },
+    asked("Verschieb den Zahnarzt auf 16 Uhr."),
+  );
+
+  assert.equal(result.isError, true);
+  const content = String(result.content);
+  // The candidate list has to be answerable out loud: times, not identifiers.
+  assert.match(content, /09:00: Zahnarzt/);
+  assert.match(content, /15:00: Zahnarzt/);
+  assert.ok(!content.includes(".ics"), "resource URLs must never reach the user");
+  assert.equal(calls.filter((call) => call.method === "PUT").length, 0, "nothing may be written");
+});
+
+test("naming the time resolves the ambiguity and the move preserves the duration", async () => {
+  const { fetchImpl, calls } = fakeServer({ duplicates: true });
+  await writeTool(serviceWith(fetchImpl), "update_event").execute(
+    { date: "2026-08-10", title: "Zahnarzt", at: "09:00", new_start_time: "16:00" },
+    asked("Verschieb den Zahnarzt von neun auf 16 Uhr."),
+  );
+
+  const put = calls.find((call) => call.method === "PUT");
+  assert.ok(put);
+  assert.match(put.body, /DTSTART:20260810T140000Z/);
+  // The original was one hour long; a move must not silently resize it.
+  assert.match(put.body, /DTEND:20260810T150000Z/);
+  assert.equal(put.ifMatch, '"abc"', "the update must be guarded by the ETag it read");
+});
+
+test("a recurring appointment is refused rather than flattened or wiped", async () => {
+  for (const tool of ["update_event", "delete_event"] as const) {
+    const { fetchImpl, calls } = fakeServer({ recurring: true });
+    const result = await writeTool(serviceWith(fetchImpl), tool).execute(
+      { date: "2026-08-10", title: "Zahnarzt", new_start_time: "16:00" },
+      asked(tool === "delete_event" ? "Lösch den Zahnarzt." : "Verschieb den Zahnarzt auf 16 Uhr."),
+    );
+    assert.equal(result.isError, true, tool);
+    assert.match(String(result.content), /Terminserie/);
+    assert.equal(
+      calls.filter((call) => call.method === "PUT" || call.method === "DELETE").length,
+      0,
+      `${tool} must leave the series alone`,
+    );
+  }
+});
+
+test("delete_event removes the appointment and says what it removed", async () => {
+  const { fetchImpl, calls } = fakeServer();
+  const result = await writeTool(serviceWith(fetchImpl), "delete_event").execute(
+    { date: "2026-08-10", title: "Zahnarzt" },
+    asked("Sag den Zahnarzt bitte ab."),
+  );
+
+  const removed = calls.find((call) => call.method === "DELETE");
+  assert.ok(removed);
+  assert.equal(removed.ifMatch, '"abc"');
+  assert.match(String(result.content), /Termin gelöscht: .*Zahnarzt/);
+});
+
+test("a read-only calendar is never written to", async () => {
+  const { fetchImpl, calls } = fakeServer();
+  const readOnly = { ...calendarRow("cal-0", "Privat", "privat", true), readOnly: true };
+  const result = await writeTool(serviceWith(fetchImpl, [readOnly]), "delete_event").execute(
+    { date: "2026-08-10", title: "Zahnarzt" },
+    asked("Lösch den Zahnarzt."),
+  );
+  assert.equal(result.isError, true);
+  assert.match(String(result.content), /nur lesbar/);
+  assert.equal(calls.filter((call) => call.method === "DELETE").length, 0);
 });
 
 test("list_calendars names calendars without exposing URLs", async () => {

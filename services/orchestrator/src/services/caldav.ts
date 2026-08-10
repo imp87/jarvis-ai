@@ -2,6 +2,7 @@ import { decryptSecret, type Logger } from "@jarvis/shared";
 import type { CalDavAccountRow, CalDavCalendarRow, CalendarRepository } from "@jarvis/db";
 import { CalDavClient, CalDavError } from "./caldav/client.js";
 import type { CalendarEvent } from "./caldav/ical.js";
+import { buildCalendarObject, newEventUid, type EventDraft } from "./caldav/ical-write.js";
 
 export interface CalDavServiceDependencies {
   calendars: CalendarRepository;
@@ -31,7 +32,37 @@ export interface CalendarEventView {
   calendarName: string;
   timezone: string;
   event: CalendarEvent;
+  /** Everything needed to change this event, and nothing the user ever sees. */
+  source: {
+    accountId: string;
+    calendarUrl: string;
+    readOnly: boolean;
+    href: string;
+    etag: string | null;
+    /** VEVENTs sharing this resource. More than one means a recurrence set. */
+    siblingCount: number;
+  };
 }
+
+export interface EventChanges {
+  summary?: string;
+  location?: string | null;
+  description?: string | null;
+  start?: Date;
+  end?: Date;
+  allDay?: boolean;
+}
+
+/**
+ * The result of naming an event in words rather than by id.
+ *
+ * Ambiguity is a distinct outcome, never a silent "first match wins": picking
+ * the wrong appointment to delete is not recoverable from the user's side.
+ */
+export type EventLookup =
+  | { kind: "found"; view: CalendarEventView }
+  | { kind: "none" }
+  | { kind: "ambiguous"; candidates: CalendarEventView[] };
 
 export interface CalendarEventsResult {
   events: CalendarEventView[];
@@ -141,15 +172,25 @@ export class CalDavService {
                   `„${calendar.displayName}“: Der Server hat wiederkehrende Termine nicht aufgelöst.`,
                 );
               }
-              for (const event of result.events) {
-                const view: CalendarEventView = {
-                  accountName: account.name,
-                  calendarName: calendar.displayName,
-                  timezone: account.timezone,
-                  event,
-                };
-                if (event.recurring && !result.expandedByServer) unresolvedRecurring.push(view);
-                else if (overlaps(event, from, to)) events.push(view);
+              for (const resource of result.resources) {
+                for (const event of resource.events) {
+                  const view: CalendarEventView = {
+                    accountName: account.name,
+                    calendarName: calendar.displayName,
+                    timezone: account.timezone,
+                    event,
+                    source: {
+                      accountId: account.id,
+                      calendarUrl: calendar.url,
+                      readOnly: calendar.readOnly,
+                      href: resource.href,
+                      etag: resource.etag,
+                      siblingCount: resource.events.length,
+                    },
+                  };
+                  if (event.recurring && !result.expandedByServer) unresolvedRecurring.push(view);
+                  else if (overlaps(event, from, to)) events.push(view);
+                }
               }
             } catch (err) {
               const reason = err instanceof CalDavError ? err.message : String(err);
@@ -168,6 +209,109 @@ export class CalDavService {
     events.sort((a, b) => a.event.start.getTime() - b.event.start.getTime());
     unresolvedRecurring.sort((a, b) => a.event.summary.localeCompare(b.event.summary, "de"));
     return { events, unresolvedRecurring, warnings };
+  }
+
+  /**
+   * Finds the one event the user described, without an id ever changing hands.
+   *
+   * The selector is what a person would say: a day, a few words of the title,
+   * and optionally a time when the same title appears twice.
+   */
+  async resolveEvent(
+    userId: string,
+    from: Date,
+    to: Date,
+    selector: { title: string; startsAt?: Date; calendar?: string },
+  ): Promise<EventLookup> {
+    const { events, unresolvedRecurring } = await this.listEvents(userId, from, to, selector.calendar);
+    // Series masters are searched too. They can never be written to, but
+    // "that is a recurring appointment" is a far better answer than "there is
+    // no such appointment" for something the user can plainly see in the day.
+    const searchable = [...events, ...unresolvedRecurring];
+    const needle = selector.title.trim().toLowerCase();
+    let matches = needle
+      ? searchable.filter((view) => view.event.summary.toLowerCase().includes(needle))
+      : searchable;
+
+    if (selector.startsAt) {
+      const wanted = selector.startsAt.getTime();
+      const exact = matches.filter((view) => view.event.start.getTime() === wanted);
+      // Only narrow when the time actually resolves something; a caller who
+      // guessed the minute wrong should get the ambiguity list, not "none".
+      if (exact.length > 0) matches = exact;
+    }
+
+    if (matches.length === 0) return { kind: "none" };
+    if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+    return { kind: "found", view: matches[0]! };
+  }
+
+  /** The calendar a new event goes into: the named one, or the only writable one. */
+  async writableCalendars(
+    userId: string,
+    filter?: string,
+  ): Promise<Array<{ account: CalDavAccountRow; calendar: CalDavCalendarRow }>> {
+    const accounts = await this.listCalendars(userId);
+    const needle = filter?.trim().toLowerCase();
+    const writable = [];
+    for (const { account, calendars } of accounts) {
+      for (const calendar of calendars) {
+        if (!calendar.enabled || !calendar.supportsEvents || calendar.readOnly) continue;
+        if (needle && !calendar.displayName.toLowerCase().includes(needle)) continue;
+        writable.push({ account, calendar });
+      }
+    }
+    return writable;
+  }
+
+  async createEvent(
+    account: CalDavAccountRow,
+    calendar: CalDavCalendarRow,
+    draft: Omit<EventDraft, "uid">,
+  ): Promise<void> {
+    const uid = newEventUid();
+    const ics = buildCalendarObject({ ...draft, uid });
+    await this.clientFor(account).createEvent(calendar.url, uid, ics);
+    this.deps.logger.info(
+      { account: account.name, calendar: calendar.displayName, summary: draft.summary },
+      "calendar event created",
+    );
+  }
+
+  async updateEvent(view: CalendarEventView, changes: EventChanges): Promise<void> {
+    const account = await this.requireAccount(view.source.accountId);
+    const current = view.event;
+    const allDay = changes.allDay ?? current.allDay;
+    const ics = buildCalendarObject({
+      uid: current.uid,
+      summary: changes.summary ?? current.summary,
+      location: changes.location !== undefined ? changes.location : current.location,
+      description: changes.description !== undefined ? changes.description : current.description,
+      start: changes.start ?? current.start,
+      end: changes.end ?? current.end,
+      allDay,
+      sequence: current.sequence + 1,
+    });
+    await this.clientFor(account).updateEvent(view.source.href, view.source.etag, ics);
+    this.deps.logger.info(
+      { account: account.name, calendar: view.calendarName, summary: current.summary },
+      "calendar event updated",
+    );
+  }
+
+  async deleteEvent(view: CalendarEventView): Promise<void> {
+    const account = await this.requireAccount(view.source.accountId);
+    await this.clientFor(account).deleteEvent(view.source.href, view.source.etag);
+    this.deps.logger.info(
+      { account: account.name, calendar: view.calendarName, summary: view.event.summary },
+      "calendar event deleted",
+    );
+  }
+
+  private async requireAccount(accountId: string): Promise<CalDavAccountRow> {
+    const account = await this.deps.calendars.getAccount(accountId);
+    if (!account) throw new CalDavError("The calendar account no longer exists.");
+    return account;
   }
 
   private clientFor(account: CalDavAccountRow): CalDavClient {
