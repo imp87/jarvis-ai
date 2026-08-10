@@ -54,6 +54,10 @@ export class RealtimeCallSession {
   private playbackGeneration = 0;
   private pendingEndCall: { reason: string } | undefined;
   private outboundContextPending: string | undefined;
+  // Barge-in fires on every caller utterance, including the ones where the
+  // model is not speaking. Cancelling a response that is not running is
+  // rejected by OpenAI, so track what is actually in flight.
+  private responseActive = false;
   private readonly handledFunctionCalls = new Set<string>();
   private sessionConfiguration:
     | { resolve: () => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }
@@ -256,6 +260,9 @@ export class RealtimeCallSession {
         );
         return;
       }
+      case "response.created":
+        this.responseActive = true;
+        return;
       case "response.output_audio.delta":
       case "response.audio.delta":
         if (event.delta) this.queueRemoteAudio(Buffer.from(event.delta, "base64"));
@@ -278,6 +285,7 @@ export class RealtimeCallSession {
         }
         return;
       case "response.done":
+        this.responseActive = false;
         void this.finishResponse();
         return;
       case "error":
@@ -372,6 +380,8 @@ export class RealtimeCallSession {
     this.playbackGeneration += 1;
     this.remoteAudio = Buffer.alloc(0);
     this.transport.stopSending();
+    if (!this.responseActive) return;
+    this.responseActive = false;
     this.send({ type: "response.cancel" });
   }
 

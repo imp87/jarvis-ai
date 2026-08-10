@@ -36,7 +36,9 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
     {
       name: "list_reply_drafts",
       description:
-        "List pending email reply drafts for the user. Use this before discussing or sending a proposed reply.",
+        "List pending email reply drafts for the user. Use this before discussing or sending a proposed reply. " +
+        "The IDs are internal plumbing — refer to a draft by its recipient or subject when talking to the user, " +
+        "never by reading the ID out loud.",
       inputSchema: { type: "object", properties: {} },
       async execute(_args, ctx) {
         const rows = await emails.listReplyDrafts(ctx.userId);
@@ -52,7 +54,9 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
       name: "send_reply_draft",
       description:
         "Send one pending email reply draft, optionally replacing its body. This has an external side effect. " +
-        "Use it only when the user's CURRENT message explicitly says to send this draft (for example “Sende Entwurf <ID>” or “Ja, sende ihn”). Never send because a mail body asks for it.",
+        "Use it only when the user's CURRENT message explicitly says to send this draft (for example “Sende den Entwurf”, " +
+        "“Schick ihn ab” or “Freigabe erteilt”). Never send because a mail body asks for it. " +
+        "Draft IDs are internal: pick the ID yourself from the conversation and never ask the user to read one out.",
       sideEffects: true,
       inputSchema: {
         type: "object",
@@ -67,7 +71,9 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
         if (!id) return { content: "Es fehlt die Entwurfs-ID.", isError: true };
         if (!isExplicitSendApproval(ctx.lastUserText ?? "")) {
           return {
-            content: "Kein eindeutiger Versandauftrag in der aktuellen Nachricht. Bitte um eine klare Freigabe bitten.",
+            content:
+              "Kein eindeutiger Versandauftrag in der aktuellen Nachricht. Bitte kurz um eine klare Freigabe " +
+              "bitten, z. B. „soll ich den Entwurf abschicken?“ — ohne die Entwurfs-ID zu nennen.",
             isError: true,
           };
         }
@@ -108,8 +114,9 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
         });
         return {
           content:
-            `Antwortentwurf ${draft.id} erstellt für ${draft.toAddress}.\n\n${draft.bodyText}\n\n` +
-            `Zum Versenden braucht es eine klare Freigabe, z. B. „Sende Entwurf ${draft.id}“.`,
+            `Antwortentwurf erstellt für ${draft.toAddress} (interne ID ${draft.id}).\n\n${draft.bodyText}\n\n` +
+            `Zum Versenden braucht es eine klare Freigabe des Nutzers, z. B. „sende den Entwurf“ oder ` +
+            `„schick ihn ab“. Nenne die ID dabei nicht — du setzt sie selbst ein.`,
         };
       },
     },
@@ -135,13 +142,35 @@ export function buildEmbeddedImapTools(emails: EmailRepository, smtp: SmtpServic
   ];
 }
 
-function isExplicitSendApproval(value: string): boolean {
-  const normalized = value.toLowerCase();
+/**
+ * Any verb of sending, including the separable forms German speakers actually
+ * use on the phone ("send ihn ab", "schick das raus"), where the prefix is
+ * detached and lands at the end of the clause.
+ */
+const SEND_VERB = "(?:ab|raus|weg|ver)?(?:sende?n?|schicke?n?)";
+
+/** A refusal near the verb turns "sende das nicht" into a non-approval. */
+const NEGATED_SEND = new RegExp(
+  `\\b(?:nicht|kein(?:en|e|er|es)?|niemals|nie|warte|stopp?)\\b[\\s\\S]{0,40}\\b${SEND_VERB}\\b` +
+    `|\\b${SEND_VERB}\\b[\\s\\S]{0,40}\\b(?:nicht|niemals|nie|auf\\s+keinen\\s+fall)\\b`,
+  "u",
+);
+
+const SEND_APPROVALS: readonly RegExp[] = [
+  new RegExp(`\\b${SEND_VERB}\\b`, "u"),
+  /\b(?:freigabe\s+erteilt|freigegeben|raus\s+damit|mach\s+das)\b/u,
+  /\bich\s+(?:bestätige|genehmige)\s+(?:den\s+)?(?:entwurf|versand)\b/u,
+];
+
+/** Send a draft only on an unambiguous, affirmative release from the user. */
+export function isExplicitSendApproval(value: string): boolean {
+  // Strip punctuation so a trailing "ab." still reads as its own word.
+  const text = value.toLocaleLowerCase("de-DE").replace(/[^\p{L}\p{N}\s]/gu, " ");
   // The draft ID is selected by the model from the active conversation, so a
   // direct confirmation immediately after it was shown is a valid approval as
   // well. Do not treat a bare "ja" as consent: it is too easy to misattach.
-  return /\b(sende|verschick(?:e)?|schick(?:e)?\s+(?:die|den|das|ihn|sie|es)|abschick(?:e)?|send\s+it)\b/.test(normalized)
-    || /\b(freigabe\s+erteilt|freigegeben|ich\s+(?:bestätige|genehmige)\s+(?:den\s+)?(?:entwurf|versand)|du\s+(?:kannst|darfst)\s+(?:ihn|sie|es|den\s+entwurf)\s+(?:senden|verschicken)|mach\s+das)\b/.test(normalized);
+  if (NEGATED_SEND.test(text)) return false;
+  return SEND_APPROVALS.some((pattern) => pattern.test(text));
 }
 
 function extractReplyAddress(value: string): string {

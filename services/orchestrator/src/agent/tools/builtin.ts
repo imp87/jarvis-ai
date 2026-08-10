@@ -13,7 +13,10 @@ export function isExplicitHangupRequest(value: string): boolean {
     return false;
   }
   return [
-    /\b(?:leg(?:e|t)?\s+(?:bitte\s+)?auf|aufleg\w*)\b/u,
+    // Filler words routinely land between the verb and its detached prefix
+    // ("lege jetzt auf"). Only known fillers are allowed through, so that
+    // "leg die Unterlagen auf den Tisch" still does not end the call.
+    /\b(?:leg(?:e|st|t)?\s+(?:(?:bitte|jetzt|dann|mal|einfach|gleich|schon|ruhig|nun)\s+){0,3}auf\b|aufleg\w*)\b/u,
     /\b(?:beend(?:e|et)?\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch)|beend\w*\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch))\b/u,
     /\b(?:tschüss|tschuess|auf\s+wiedersehen|bis\s+bald)\b/u,
   ].some((pattern) => pattern.test(text));

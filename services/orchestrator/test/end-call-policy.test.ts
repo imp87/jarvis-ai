@@ -10,3 +10,11 @@ test("end_call only accepts clear affirmative hangup signals", () => {
   assert.equal(isExplicitHangupRequest("Danke, tschüss."), true);
   assert.equal(isExplicitHangupRequest("Beende bitte den Anruf."), true);
 });
+
+test("end_call tolerates filler words between the verb and its prefix", () => {
+  assert.equal(isExplicitHangupRequest("Ich ignoriere es und lege jetzt auf."), true);
+  assert.equal(isExplicitHangupRequest("Leg dann einfach auf."), true);
+  assert.equal(isExplicitHangupRequest("Du kannst auflegen, danke."), true);
+  // A filler list, not a wildcard: an unrelated object must not end the call.
+  assert.equal(isExplicitHangupRequest("Leg die Unterlagen auf den Tisch."), false);
+});
