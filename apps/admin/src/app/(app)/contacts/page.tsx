@@ -17,11 +17,14 @@ export default async function ContactsPage() {
   let contacts: Contact[] = [];
   try {
     const [usersResult, status] = await Promise.all([getUsers(), getStatus()]);
-    users = usersResult.users;
-    outboundCallsEnabled = status.policy.outboundCallsEnabled;
+    users = usersResult.users ?? [];
+    // An orchestrator that predates this feature has no such field, and an
+    // admin container is easy to rebuild without its counterpart. Treat the
+    // absence as "off" rather than letting undefined reach the client.
+    outboundCallsEnabled = status.policy?.outboundCallsEnabled === true;
     // One owner in practice; the table is per user, so the lists are merged.
     const perUser = await Promise.all(users.map((user) => getContacts(user.id)));
-    contacts = perUser.flatMap((result) => result.contacts);
+    contacts = perUser.flatMap((result) => result.contacts ?? []);
   } catch (err) {
     return (
       <Alert color="red" title="Could not reach the orchestrator">
