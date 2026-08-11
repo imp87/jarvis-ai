@@ -262,6 +262,11 @@ export function adminRoutes(container: Container): Router {
           : {}),
       });
       await container.mailDelivery.onCallStatus(id, input.status);
+      if (input.status === "completed") {
+        // Never awaited: resolution reads the calendar and asks a model, and
+        // the pipeline's status callback must not wait on either.
+        void container.callResolution.onCallCompleted(id);
+      }
       container.logger.info(
         { callId: id, status: input.status, ...(input.error ? { error: input.error } : {}) },
         "call status reported by the pipeline",
@@ -324,16 +329,40 @@ export function adminRoutes(container: Container): Router {
         : await repos.conversations.create(owner.id, `Anruf an ${call.toNumber}`);
       if (!transcript) throw new NotFoundError("call transcript conversation not found");
 
+      // What this call may agree to, read from the database on every turn
+      // rather than carried along: the set has to be the frozen one.
+      const mandate = await repos.mandates.findByCall(callId);
+      const briefing = container.mandateService.briefingFor(
+        mandate,
+        container.config.env.QUIET_HOURS_TIMEZONE,
+      );
+
+      await repos.calls.appendTranscript(callId, {
+        at: new Date().toISOString(),
+        speaker: "other",
+        text: input.text,
+      });
+
       const result = await container.agent.run({
         userId: owner.id,
         ownerName: owner.displayName,
         conversationId: transcript.id,
         channel: "voice_call",
-        text: input.text,
+        text: `${briefing}
+
+---
+
+${input.text}`,
         // The far end may not cause anything outside the conversation. This is
         // the single most important line in this handler.
         allowSideEffects: false,
         counterpart: "third_party",
+      });
+
+      await repos.calls.appendTranscript(callId, {
+        at: new Date().toISOString(),
+        speaker: "agent",
+        text: result.reply,
       });
 
       res.json({

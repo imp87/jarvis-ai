@@ -9,6 +9,13 @@ export type CallStatus =
   | "completed"
   | "failed";
 
+/** One spoken turn. `other` is the far end — personal data of a third party. */
+export interface TranscriptEntry {
+  at: string;
+  speaker: "agent" | "other";
+  text: string;
+}
+
 export interface CallLogRow {
   id: string;
   conversationId: string | null;
@@ -68,6 +75,33 @@ export class CallRepository {
       ],
     );
     return toCallLogRow(rows[0] as Record<string, unknown>);
+  }
+
+  /**
+   * Appends one spoken turn to the call's transcript.
+   *
+   * Appended in the database rather than read-modify-written in code: two turns
+   * can be in flight at once on a live call, and a lost one is a hole in the
+   * audit trail for a commitment made in the owner's name.
+   *
+   * The column has existed since 001 and was never written until outbound calls
+   * to third parties made it the record of what was actually said.
+   */
+  async appendTranscript(id: string, entry: TranscriptEntry): Promise<void> {
+    await this.pool.query(
+      `UPDATE call_logs
+          SET transcript = COALESCE(transcript, '[]'::jsonb) || $2::jsonb
+        WHERE id = $1`,
+      [id, JSON.stringify([entry])],
+    );
+  }
+
+  async transcriptOf(id: string): Promise<TranscriptEntry[]> {
+    const { rows } = await this.pool.query<{ transcript: TranscriptEntry[] | null }>(
+      `SELECT transcript FROM call_logs WHERE id = $1`,
+      [id],
+    );
+    return rows[0]?.transcript ?? [];
   }
 
   async updateStatus(

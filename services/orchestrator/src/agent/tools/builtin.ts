@@ -9,6 +9,7 @@ import { isExplicitRequest } from "../consent.js";
 import type { MemoryService } from "../../services/memory.js";
 import type { CallService } from "../../services/calls.js";
 import { resolveCallTarget } from "../../services/call-targets.js";
+import type { MandateService } from "../../services/mandates.js";
 
 /**
  * A refusal anywhere near a hangup verb. Unlike the calendar gate this looks at
@@ -43,6 +44,7 @@ export function buildBuiltinTools(deps: {
   memory: MemoryService;
   calls: CallService;
   contacts: ContactRepository;
+  mandates: MandateService;
   ownerPhoneNumber?: string | undefined;
   outboundCallsEnabled: boolean;
 }): ExecutableTool[] {
@@ -337,6 +339,25 @@ export function buildBuiltinTools(deps: {
           return { content: `Invalid call request: ${parsed.error.message}`, isError: true };
         }
         const outcome = await deps.calls.requestCall(parsed.data);
+        if (outcome.placed && resolved.target.kind !== "owner") {
+          // Freeze what this call may agree to, before a word is spoken. Built
+          // from the owner's own message: mention an appointment and the free
+          // slots travel with the call, so a question that turns into a booking
+          // needs no second one. Mention nothing and the agent may only ask.
+          await deps.mandates
+            .createForCall({
+              userId: ctx.userId,
+              callLogId: outcome.call.id,
+              ...(resolved.target.kind === "contact"
+                ? { contactId: resolved.target.contact.id }
+                : {}),
+              errand: String(args["reason"] ?? "Anruf"),
+              ownerUtterance: ctx.lastUserText ?? "",
+            })
+            // A mandate that cannot be built is not a reason to abandon the
+            // call — it degrades to an enquiry, which commits nothing.
+            .catch(() => undefined);
+        }
         if (outcome.placed) {
           const who =
             resolved.target.kind === "contact"

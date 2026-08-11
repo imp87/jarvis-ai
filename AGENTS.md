@@ -46,6 +46,15 @@ Last reviewed: 2026-08-09.
   and draws on `SYSTEM_ALERT_CALLS_PER_HOUR`/`_PER_DAY`. The split exists so a
   day of reminders cannot exhaust the channel that reports a failure. No tool
   reaches `system_alert`, so the model cannot route itself past quiet hours.
+- An appointment agreed on a call is authorised by a **mandate** (`call_mandates`),
+  never by the transcript. The free slots are computed from the owner's calendar
+  and frozen *before* dialling; the far end can only select one, never supply a
+  time. Resolution asks the model *which of these ids*, matches the answer
+  against the frozen list in code, re-checks the slot against the live calendar,
+  and only then writes. Booking authority comes from the owner's own words
+  (`grantsBookingAuthority`); without it the call may ask and agree to nothing.
+  An agreement that could not be recorded raises a `fatal` alert — the
+  commitment exists in a stranger's book and the owner does not know.
 - A turn spoken by somebody who is *not* the owner goes to `POST
   /v1/calls/:id/turn`, never `/v1/messages/inbound`. The inbound path checks the
   identity allowlist, which the far end of an outbound call can never satisfy —

@@ -5,6 +5,7 @@ import {
   ConversationRepository,
   EmailRepository,
   IdentityRepository,
+  MandateRepository,
   MemoryRepository,
   NotificationRepository,
   RegistryRepository,
@@ -26,6 +27,8 @@ import { MemoryService } from "./services/memory.js";
 import { PolicyService } from "./services/policy.js";
 import { NotificationService } from "./services/notify.js";
 import { AlertService } from "./services/alerts.js";
+import { MandateService } from "./services/mandates.js";
+import { CallResolutionService } from "./services/call-resolution.js";
 import { TaskService } from "./services/tasks.js";
 import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
@@ -55,6 +58,7 @@ export interface Container {
     calendars: CalendarRepository;
     notifications: NotificationRepository;
     contacts: ContactRepository;
+    mandates: MandateRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -65,6 +69,8 @@ export interface Container {
   policy: PolicyService;
   notifications: NotificationService;
   alerts: AlertService;
+  mandateService: MandateService;
+  callResolution: CallResolutionService;
   taskService: TaskService;
   taskRunner: TaskRunner;
   imap: ImapService;
@@ -93,6 +99,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     calendars: new CalendarRepository(pool),
     notifications: new NotificationRepository(pool),
     contacts: new ContactRepository(pool),
+    mandates: new MandateRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -211,6 +218,22 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     logger,
     env.OWNER_PHONE_NUMBER,
   );
+  // What a call was allowed to agree to, frozen before it was placed.
+  const mandateService = new MandateService({
+    mandates: repos.mandates,
+    caldav,
+    logger,
+    timezone: env.QUIET_HOURS_TIMEZONE,
+  });
+  const callResolution = new CallResolutionService({
+    calls: repos.calls,
+    mandates: repos.mandates,
+    mandateService,
+    caldav,
+    router,
+    alerts,
+    logger,
+  });
   const taskService = new TaskService(repos.tasks);
 
   const builtins = [
@@ -218,6 +241,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
       memory,
       calls,
       contacts: repos.contacts,
+      mandates: mandateService,
       ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
       // Two switches guard a call to anyone but the owner: this one, and
       // `allow_calls` on the contact itself.
@@ -285,6 +309,8 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     policy,
     notifications,
     alerts,
+    mandateService,
+    callResolution,
     taskService,
     taskRunner,
     imap,
