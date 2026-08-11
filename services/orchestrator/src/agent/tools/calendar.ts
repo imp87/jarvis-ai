@@ -1,7 +1,6 @@
 import type { EmbeddedMcpTool } from "@jarvis/mcp";
-import type { ToolResult } from "@jarvis/shared";
+import { wallTimeToUtc, type ToolResult } from "@jarvis/shared";
 import type { CalDavService, CalendarEventView, EventChanges } from "../../services/caldav.js";
-import { wallTimeToUtc } from "../../services/caldav/ical.js";
 
 export type CalendarAction = "create" | "update" | "delete";
 

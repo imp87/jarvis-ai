@@ -1,3 +1,5 @@
+import { isUsableTimeZone, wallTimeToUtc } from "@jarvis/shared";
+
 /**
  * Just enough RFC 5545 to read VEVENTs back out of a calendar-data payload.
  *
@@ -224,78 +226,6 @@ export function parseIcalDuration(value: string): number | undefined {
     Number(minutes ?? 0) * 60_000 +
     Number(seconds ?? 0) * 1_000;
   return sign === "-" ? -total : total;
-}
-
-/**
- * Converts a wall-clock time in an IANA zone to the instant it denotes.
- *
- * Node ships the zone database with Intl, so this needs no dependency: format
- * a guess in the target zone, measure how far the result drifted from the wall
- * time we wanted, and correct by that offset. The second pass matters only
- * around DST transitions, where the first guess can land on the wrong side of
- * the jump and report the wrong offset.
- */
-export function wallTimeToUtc(
-  [year, month, day, hour, minute, second]: readonly [number, number, number, number, number, number],
-  timeZone: string,
-  fallbackTimeZone: string,
-): Date {
-  const naive = Date.UTC(year, month - 1, day, hour, minute, second);
-  const zone = isUsableTimeZone(timeZone) ? timeZone : fallbackTimeZone;
-  let offset = zoneOffsetMs(naive, zone);
-  let instant = naive - offset;
-  const settled = zoneOffsetMs(instant, zone);
-  if (settled !== offset) {
-    offset = settled;
-    instant = naive - offset;
-  }
-  return new Date(instant);
-}
-
-const formatterCache = new Map<string, Intl.DateTimeFormat>();
-
-function offsetFormatter(timeZone: string): Intl.DateTimeFormat {
-  let formatter = formatterCache.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    formatterCache.set(timeZone, formatter);
-  }
-  return formatter;
-}
-
-/** How far ahead of UTC the zone is at this instant, in milliseconds. */
-function zoneOffsetMs(instant: number, timeZone: string): number {
-  const parts = offsetFormatter(timeZone).formatToParts(new Date(instant));
-  const read = (type: string): number => {
-    const value = parts.find((part) => part.type === type)?.value;
-    return value === undefined ? 0 : Number(value);
-  };
-  // Some ICU builds render midnight as hour 24 under hour12: false.
-  const hour = read("hour") % 24;
-  const asUtc = Date.UTC(read("year"), read("month") - 1, read("day"), hour, read("minute"), read("second"));
-  return asUtc - instant;
-}
-
-export function isUsableTimeZone(timeZone: string): boolean {
-  if (!timeZone.trim()) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
-  } catch {
-    // Exchange and older Outlook servers emit Windows zone names such as
-    // "W. Europe Standard Time", which Intl rejects. Falling back to the
-    // account zone is better than dropping the event.
-    return false;
-  }
 }
 
 /** RFC 5545 text escaping: \n \, \; \\ */

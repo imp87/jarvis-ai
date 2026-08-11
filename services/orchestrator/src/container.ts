@@ -197,7 +197,12 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
       calls,
       ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
     }),
-    ...buildTaskTools({ tasks: repos.tasks, taskService, notifications }),
+    ...buildTaskTools({
+      tasks: repos.tasks,
+      taskService,
+      notifications,
+      timezone: env.QUIET_HOURS_TIMEZONE,
+    }),
   ];
   const tools = new ToolRegistry(
     builtins,

@@ -1,5 +1,13 @@
 import type { TaskRepository } from "@jarvis/db";
-import type { ChannelName, ExecutableTool, ToolResult } from "@jarvis/shared";
+import {
+  dateInZone,
+  describeNow,
+  isUsableTimeZone,
+  wallTimeToUtc,
+  type ChannelName,
+  type ExecutableTool,
+  type ToolResult,
+} from "@jarvis/shared";
 import type { NotificationService } from "../../services/notify.js";
 import type { TaskService } from "../../services/tasks.js";
 import { describeSchedule } from "../../services/schedule.js";
@@ -15,8 +23,13 @@ export function buildTaskTools(deps: {
   tasks: TaskRepository;
   taskService: TaskService;
   notifications: NotificationService;
+  /** The owner's zone. Every wall-clock time below is read in it. */
+  timezone: string;
 }): ExecutableTool[] {
   const channels = deps.notifications.availableChannels();
+  // A misconfigured zone must not silently become UTC and shift every reminder
+  // by an hour or two; fall back to the deployment's home zone instead.
+  const timezone = isUsableTimeZone(deps.timezone) ? deps.timezone : "Europe/Berlin";
 
   const tools: ExecutableTool[] = [
     {
@@ -31,12 +44,18 @@ export function buildTaskTools(deps: {
         "if something needs an answer today' will not.\n\n" +
         "Each task keeps its own conversation across runs, so you can see what you already " +
         "reported and need not repeat yourself.\n\n" +
-        "For a one-off relative time such as 'in one hour', always use `delay_seconds` (3600 " +
-        "for one hour). Never calculate an ISO timestamp yourself for a relative time. Use " +
-        "`interval_seconds` only for 'every N minutes' and `cron` only for clock times " +
-        "('0 8 * * 1-5'). Do not schedule anything faster than every 5 minutes. If a scheduled " +
-        "task places a phone call, make its first spoken context state the concrete reminder in " +
-        "German — never a generic 'What can I do for you?' greeting.",
+        "Pick the schedule form by what the user said, and never do date or time arithmetic " +
+        "yourself — every form below is converted for you:\n" +
+        "- A clock time on a given day ('morgen um 07:45', 'am 20. um 14 Uhr'): `run_on` as " +
+        "YYYY-MM-DD plus `run_at` as HH:MM. Read the local date from '# Now' and count days " +
+        "forward; do not convert to UTC and do not compute a delay.\n" +
+        "- A relative time ('in einer Stunde'): `delay_seconds` (3600 for one hour).\n" +
+        "- Something genuinely repeating ('jeden Werktag um 8'): `cron` ('0 8 * * 1-5') or " +
+        "`interval_seconds`. A cron with a fixed day-of-month and month is always a mistake — " +
+        "that fires once a year. Use `run_on`/`run_at` for a single date.\n\n" +
+        "Do not schedule anything faster than every 5 minutes. If a scheduled task places a " +
+        "phone call, make its first spoken context state the concrete reminder in German — " +
+        "never a generic 'What can I do for you?' greeting.",
       source: "builtin",
       // Commits to recurring spend and can reach the user unprompted.
       sideEffects: true,
@@ -68,11 +87,21 @@ export function buildTaskTools(deps: {
             description:
               "One-off delay from now in seconds. Use for relative requests: one hour = 3600.",
           },
+          run_on: {
+            type: "string",
+            description:
+              "Day of a one-off, as YYYY-MM-DD in the user's local calendar. Pair with run_at.",
+          },
+          run_at: {
+            type: "string",
+            description:
+              "Local clock time of a one-off, as HH:MM in the user's timezone. Pair with run_on.",
+          },
           run_once_at: {
             type: "string",
             description:
               "Absolute ISO-8601 timestamp for a one-off, including Z or an explicit UTC offset. " +
-              "Use delay_seconds instead for 'in N minutes/hours'.",
+              "Prefer run_on/run_at; this exists for a timestamp you were literally given.",
           },
         },
         required: ["title", "instruction"],
@@ -90,11 +119,31 @@ export function buildTaskTools(deps: {
         const cron = args["cron"] ? String(args["cron"]) : undefined;
         const delaySeconds = args["delay_seconds"] ? Number(args["delay_seconds"]) : undefined;
         const runOnceAt = args["run_once_at"] ? new Date(String(args["run_once_at"])) : undefined;
+        const runOn = args["run_on"] ? String(args["run_on"]).trim() : undefined;
+        const runAtClock = args["run_at"] ? String(args["run_at"]).trim() : undefined;
 
-        if ([intervalSeconds, cron, delaySeconds, runOnceAt].filter(Boolean).length !== 1) {
+        // run_on and run_at are one form in two fields; either alone is a
+        // half-specified time, which is exactly the kind of thing that would
+        // otherwise be silently completed with a guess.
+        if (Boolean(runOn) !== Boolean(runAtClock)) {
+          return {
+            content: "run_on and run_at go together: give the day as YYYY-MM-DD and the time as HH:MM.",
+            isError: true,
+          };
+        }
+        const wallClock = runOn && runAtClock ? parseWallClock(runOn, runAtClock, timezone) : undefined;
+        if (runOn && runAtClock && !wallClock) {
+          return {
+            content: `"${runOn} ${runAtClock}" is not a valid date and time. Use YYYY-MM-DD and HH:MM.`,
+            isError: true,
+          };
+        }
+
+        if ([intervalSeconds, cron, delaySeconds, runOnceAt, wallClock].filter(Boolean).length !== 1) {
           return {
             content:
-              "Give exactly one of interval_seconds, cron, delay_seconds or run_once_at — not none and not several.",
+              "Give exactly one schedule: run_on with run_at, delay_seconds, run_once_at, " +
+              "interval_seconds, or cron — not none and not several.",
             isError: true,
           };
         }
@@ -111,15 +160,17 @@ export function buildTaskTools(deps: {
           return { content: "delay_seconds must be an integer of at least 60.", isError: true };
         }
         const scheduledAt =
-          runOnceAt ?? (delaySeconds !== undefined ? new Date(Date.now() + delaySeconds * 1000) : undefined);
+          wallClock ??
+          runOnceAt ??
+          (delaySeconds !== undefined ? new Date(Date.now() + delaySeconds * 1000) : undefined);
 
         const schedule = {
           kind: scheduledAt ? ("once" as const) : cron ? ("cron" as const) : ("interval" as const),
           intervalSeconds: intervalSeconds ?? null,
           cron: cron ?? null,
-          // Tasks the agent creates follow the deployment's zone; it has no
-          // reliable way to know the user's and would otherwise guess UTC.
-          timezone: process.env["QUIET_HOURS_TIMEZONE"] ?? "Europe/Berlin",
+          // Tasks the agent creates follow the owner's zone, injected at wiring
+          // time. It has no reliable way to know it and would otherwise guess UTC.
+          timezone,
         };
 
         try {
@@ -135,8 +186,12 @@ export function buildTaskTools(deps: {
           });
           return {
             content:
-              `Scheduled "${task.title}" (${describeSchedule(schedule)}), ` +
-              `first run ${task.nextRunAt?.toISOString() ?? "unknown"}. Task id ${task.id}.`,
+              `Scheduled "${task.title}" (${describeSchedule(schedule)}), first run ` +
+              // Confirmed in local time: an ISO string in UTC is what the user
+              // would have to convert back, and it is what made a 07:45 reminder
+              // land at 11:34 in the first place.
+              `${task.nextRunAt ? describeNow(task.nextRunAt, timezone) : "unknown"}. ` +
+              `Task id ${task.id}.`,
           };
         } catch (err) {
           return { content: `Could not schedule that: ${(err as Error).message}`, isError: true };
@@ -238,4 +293,29 @@ export function buildTaskTools(deps: {
   }
 
   return tools;
+}
+
+/**
+ * "2026-08-11" + "07:45" in the owner's zone, as the instant it denotes.
+ *
+ * This is the whole point of the wall-clock form: the conversion happens here,
+ * with a real timezone database, instead of in a model that has to subtract two
+ * timestamps and get DST right.
+ */
+export function parseWallClock(day: string, clock: string, timeZone: string): Date | undefined {
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day.trim());
+  const time = /^(\d{1,2})[:.](\d{2})$/.exec(clock.trim());
+  if (!date || !time) return undefined;
+
+  const [year, month, dayOfMonth] = [Number(date[1]), Number(date[2]), Number(date[3])];
+  const [hour, minute] = [Number(time[1]), Number(time[2])];
+  if (month < 1 || month > 12 || dayOfMonth < 1 || dayOfMonth > 31) return undefined;
+  if (hour > 23 || minute > 59) return undefined;
+
+  const instant = wallTimeToUtc([year, month, dayOfMonth, hour, minute, 0], timeZone, "UTC");
+  // Rejects 31 April and friends: the calendar would have rolled them into the
+  // next month, quietly scheduling a reminder for a day the user did not name.
+  const [checkYear, checkMonth, checkDay] = dateInZone(instant, timeZone);
+  if (checkYear !== year || checkMonth !== month || checkDay !== dayOfMonth) return undefined;
+  return instant;
 }

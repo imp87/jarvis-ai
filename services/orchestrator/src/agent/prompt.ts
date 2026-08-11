@@ -1,4 +1,4 @@
-import type { ChannelName } from "@jarvis/shared";
+import { describeNow, type ChannelName } from "@jarvis/shared";
 
 export interface SystemPromptInput {
   ownerName: string;
@@ -115,8 +115,17 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
 
   // Volatile content last: it changes every turn and would otherwise invalidate
   // the cached prefix above it.
+  // Local time first, and spelled out. Given only a UTC timestamp the model has
+  // to convert before it can answer "what day is tomorrow" — and a scheduling
+  // slip of exactly that kind once turned a 07:45 reminder into an 11:34 one.
   sections.push(
-    `# Now\n${input.now.toISOString()} (configured timezone: ${input.timezone})`,
+    [
+      "# Now",
+      describeNow(input.now, input.timezone),
+      `UTC: ${input.now.toISOString()}`,
+      "Local time is authoritative for anything the owner says — days, clock times and " +
+        "deadlines are all in their timezone unless they say otherwise.",
+    ].join("\n"),
   );
 
   if (input.memoryContext) {
