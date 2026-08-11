@@ -68,6 +68,25 @@ export async function logout(): Promise<void> {
   redirect("/login");
 }
 
+// --- Shared plumbing -------------------------------------------------------
+
+/**
+ * Validates an id before it is spliced into a request path, so a malformed one
+ * fails here as a field error rather than as a 400 from the orchestrator.
+ */
+const uuid = (value: string): string => z.string().uuid().parse(value);
+
+/**
+ * Revalidates a section page together with the dashboard.
+ *
+ * The dashboard summarises every section, so a change that is saved but not
+ * reflected there reads to the operator as if the save did not take.
+ */
+function revalidateSection(page: string): void {
+  revalidatePath(page);
+  revalidatePath("/");
+}
+
 // --- Translating the auth presets -----------------------------------------
 
 /**
@@ -128,32 +147,42 @@ function authToConnectorFields(auth: AuthInput): {
   }
 }
 
-/** Accepts `Name: value` and `Name=value`, since both get pasted from docs. */
-function parseHeaderLines(raw: string): Record<string, string> | undefined {
+/**
+ * Splits pasted `name<separator>value` lines into a record.
+ *
+ * Blank lines and `#` comments are dropped, because what gets pasted here is a
+ * snippet from someone's documentation rather than a clean list. A line without
+ * a separator throws rather than being skipped: silently ignoring a mistyped
+ * header is how a server ends up connected without its credential.
+ *
+ * @param separator Where the name ends. Headers accept `:` or `=` since docs
+ * use both; environment variables accept only `=`.
+ */
+function parseKeyValueLines(
+  raw: string,
+  separator: RegExp,
+  shape: string,
+): Record<string, string> | undefined {
   const entries = raw
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
     .map((line) => {
-      const at = line.search(/[:=]/);
-      if (at <= 0) throw new Error(`Not a "Name: value" line: "${line.slice(0, 40)}"`);
+      const at = line.search(separator);
+      if (at <= 0) throw new Error(`Not a ${shape} line: "${line.slice(0, 40)}"`);
       return [line.slice(0, at).trim(), line.slice(at + 1).trim()] as const;
     });
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+/** Accepts `Name: value` and `Name=value`, since both get pasted from docs. */
+function parseHeaderLines(raw: string): Record<string, string> | undefined {
+  return parseKeyValueLines(raw, /[:=]/, '"Name: value"');
+}
+
 /** `KEY=value` lines for a stdio server's environment. */
 function parseEnvLines(raw: string): Record<string, string> | undefined {
-  const entries = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
-    .map((line) => {
-      const at = line.indexOf("=");
-      if (at <= 0) throw new Error(`Not a KEY=value line: "${line.slice(0, 40)}"`);
-      return [line.slice(0, at).trim(), line.slice(at + 1).trim()] as const;
-    });
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  return parseKeyValueLines(raw, /=/, "KEY=value");
 }
 
 /** Shell-ish splitting so `--root "/some path"` survives being typed as one line. */
@@ -165,13 +194,38 @@ function parseArgs(raw: string): string[] {
 
 // --- MCP servers -----------------------------------------------------------
 
+/**
+ * The parts of the MCP form that mean the same thing whether the server is
+ * being registered or edited: where to reach it, and the credential material.
+ *
+ * `secrets` carries HTTP headers for a remote server and environment variables
+ * for a stdio one — the transport decides which, and OAuth means neither,
+ * because the token is fetched rather than typed.
+ */
+function mcpEndpointFields(input: McpServerInput): {
+  endpoint: Record<string, unknown>;
+  secrets: Record<string, string> | undefined;
+  oauth: { clientId?: string; clientSecret?: string; scope?: string } | undefined;
+} {
+  return {
+    endpoint:
+      input.transport === "http"
+        ? { url: input.url }
+        : { command: input.command, args: parseArgs(input.args) },
+    secrets:
+      input.transport === "http"
+        ? input.authMode === "static"
+          ? authToHeaders(input.auth)
+          : undefined
+        : parseEnvLines(input.env),
+    oauth: oauthConfigFromInput(input),
+  };
+}
+
 export async function createMcpServer(raw: McpServerInput): Promise<ActionResult> {
   return attempt("Server registered.", async () => {
     const input = mcpServerSchema.parse(raw);
-    const secrets = input.transport === "http"
-      ? (input.authMode === "static" ? authToHeaders(input.auth) : undefined)
-      : parseEnvLines(input.env);
-    const oauth = oauthConfigFromInput(input);
+    const { endpoint, secrets, oauth } = mcpEndpointFields(input);
 
     const result = await api.post<{ name: string; connected: boolean; connectError?: string }>(
       "/v1/mcp/servers",
@@ -179,16 +233,13 @@ export async function createMcpServer(raw: McpServerInput): Promise<ActionResult
         name: input.name,
         description: input.description,
         transport: input.transport,
-        ...(input.transport === "http"
-          ? { url: input.url }
-          : { command: input.command, args: parseArgs(input.args) }),
+        ...endpoint,
         ...(secrets ? { secrets } : {}),
         authMode: input.authMode,
         ...(oauth ? { oauth } : {}),
       },
     );
-    revalidatePath("/mcp");
-    revalidatePath("/");
+    revalidateSection("/mcp");
 
     // Registered but unreachable is the common case and must not read as
     // success — that is the whole point of attaching the server.
@@ -212,25 +263,19 @@ export async function updateMcpServer(
 ): Promise<ActionResult> {
   return attempt("Server updated.", async () => {
     const input = mcpServerSchema.parse(raw);
-    const secrets = input.transport === "http"
-      ? (input.authMode === "static" ? authToHeaders(input.auth) : undefined)
-      : parseEnvLines(input.env);
-    const oauth = oauthConfigFromInput(input);
+    const { endpoint, secrets, oauth } = mcpEndpointFields(input);
 
     const result = await api.patch<{ connected: boolean; connectError?: string }>(
-      `/v1/mcp/servers/${z.string().uuid().parse(id)}`,
+      `/v1/mcp/servers/${uuid(id)}`,
       {
         description: input.description,
-        ...(input.transport === "http"
-          ? { url: input.url }
-          : { command: input.command, args: parseArgs(input.args) }),
+        ...endpoint,
         ...(options.replaceSecret ? { secrets: secrets ?? null } : {}),
         authMode: input.authMode,
         ...(options.replaceOAuth ? { oauth: oauth ?? {} } : {}),
       },
     );
-    revalidatePath("/mcp");
-    revalidatePath("/");
+    revalidateSection("/mcp");
     return result.connected
       ? ok(`${input.name} reconnected — its tools are available.`)
       : warn(`Saved, but connecting still fails: ${result.connectError ?? "unknown error"}`);
@@ -252,11 +297,10 @@ function oauthConfigFromInput(input: McpServerInput):
 export async function setMcpServerEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
     const result = await api.patch<{ connected: boolean; connectError?: string }>(
-      `/v1/mcp/servers/${z.string().uuid().parse(id)}`,
+      `/v1/mcp/servers/${uuid(id)}`,
       { enabled },
     );
-    revalidatePath("/mcp");
-    revalidatePath("/");
+    revalidateSection("/mcp");
     if (!enabled) return ok("Server disabled.");
     return result.connected
       ? ok("Server enabled and connected.")
@@ -266,9 +310,8 @@ export async function setMcpServerEnabled(id: string, enabled: boolean): Promise
 
 export async function deleteMcpServer(id: string): Promise<ActionResult> {
   return attempt("Server removed.", async () => {
-    await api.delete(`/v1/mcp/servers/${z.string().uuid().parse(id)}`);
-    revalidatePath("/mcp");
-    revalidatePath("/");
+    await api.delete(`/v1/mcp/servers/${uuid(id)}`);
+    revalidateSection("/mcp");
   });
 }
 
@@ -277,8 +320,7 @@ export async function reloadMcpServers(): Promise<ActionResult> {
     const result = await api.post<{ servers: Array<{ name: string; toolCount: number }> }>(
       "/v1/mcp/reload",
     );
-    revalidatePath("/mcp");
-    revalidatePath("/");
+    revalidateSection("/mcp");
     const tools = result.servers.reduce((sum, s) => sum + s.toolCount, 0);
     return ok(`${result.servers.length} server(s) connected, ${tools} tool(s) available.`);
   });
@@ -289,7 +331,7 @@ export async function startMcpOAuth(
 ): Promise<ActionResult & { authorizationUrl?: string }> {
   try {
     const result = await api.post<{ authorizationUrl: string }>(
-      `/v1/mcp/servers/${z.string().uuid().parse(id)}/oauth/start`,
+      `/v1/mcp/servers/${uuid(id)}/oauth/start`,
     );
     return { status: "success", message: "Opening provider sign-in…", authorizationUrl: result.authorizationUrl };
   } catch (err) {
@@ -328,8 +370,7 @@ export async function createImapAccount(raw: ImapAccountInput): Promise<ActionRe
           }
         : {}),
     });
-    revalidatePath("/imap");
-    revalidatePath("/");
+    revalidateSection("/imap");
     return ok("Account saved. Jarvis is connecting via IMAP IDLE now.");
   });
 }
@@ -337,7 +378,7 @@ export async function createImapAccount(raw: ImapAccountInput): Promise<ActionRe
 export async function updateImapAccount(id: string, raw: ImapAccountInput): Promise<ActionResult> {
   return attempt("IMAP account updated.", async () => {
     const input = imapAccountSchema.parse(raw);
-    await api.patch(`/v1/imap/accounts/${z.string().uuid().parse(id)}`, {
+    await api.patch(`/v1/imap/accounts/${uuid(id)}`, {
       name: input.name, host: input.host, port: input.port, secure: input.secure,
       username: input.username, mailbox: input.mailbox,
       notifyChannel: input.deliveryPolicy.normal === "discord" ? "discord" : "telegram",
@@ -351,26 +392,23 @@ export async function updateImapAccount(id: string, raw: ImapAccountInput): Prom
       maxBodyChars: input.maxBodyChars,
       ...(input.password.trim() ? { password: input.password } : {}),
     });
-    revalidatePath("/imap");
-    revalidatePath("/");
+    revalidateSection("/imap");
     return ok("Saved. The IMAP connection is being restarted.");
   });
 }
 
 export async function setImapAccountEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
-    await api.patch(`/v1/imap/accounts/${z.string().uuid().parse(id)}`, { enabled });
-    revalidatePath("/imap");
-    revalidatePath("/");
+    await api.patch(`/v1/imap/accounts/${uuid(id)}`, { enabled });
+    revalidateSection("/imap");
     return ok(enabled ? "Account enabled and connecting." : "Account disabled.");
   });
 }
 
 export async function deleteImapAccount(id: string): Promise<ActionResult> {
   return attempt("IMAP account removed.", async () => {
-    await api.delete(`/v1/imap/accounts/${z.string().uuid().parse(id)}`);
-    revalidatePath("/imap");
-    revalidatePath("/");
+    await api.delete(`/v1/imap/accounts/${uuid(id)}`);
+    revalidateSection("/imap");
   });
 }
 
@@ -381,8 +419,7 @@ export async function createCalDavAccount(raw: CalDavAccountInput): Promise<Acti
     const input = caldavAccountSchema.parse(raw);
     if (!input.password.trim()) throw new Error("The CalDAV password or app-specific password is required.");
     await api.post("/v1/caldav/accounts", input);
-    revalidatePath("/calendar");
-    revalidatePath("/");
+    revalidateSection("/calendar");
     return ok("Account saved. Jarvis discovered its calendars.");
   });
 }
@@ -390,7 +427,7 @@ export async function createCalDavAccount(raw: CalDavAccountInput): Promise<Acti
 export async function updateCalDavAccount(id: string, raw: CalDavAccountInput): Promise<ActionResult> {
   return attempt("Calendar account updated.", async () => {
     const input = caldavAccountSchema.parse(raw);
-    await api.patch(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`, {
+    await api.patch(`/v1/caldav/accounts/${uuid(id)}`, {
       name: input.name,
       baseUrl: input.baseUrl,
       username: input.username,
@@ -398,40 +435,37 @@ export async function updateCalDavAccount(id: string, raw: CalDavAccountInput): 
       // An empty field means "keep the stored password", never "clear it".
       ...(input.password.trim() ? { password: input.password } : {}),
     });
-    revalidatePath("/calendar");
-    revalidatePath("/");
+    revalidateSection("/calendar");
     return ok("Saved. Calendars were rediscovered.");
   });
 }
 
 export async function refreshCalDavAccount(id: string): Promise<ActionResult> {
   return attempt("Calendars rediscovered.", async () => {
-    await api.post(`/v1/caldav/accounts/${z.string().uuid().parse(id)}/refresh`, {});
+    await api.post(`/v1/caldav/accounts/${uuid(id)}/refresh`, {});
     revalidatePath("/calendar");
   });
 }
 
 export async function setCalDavAccountEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
-    await api.patch(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`, { enabled });
-    revalidatePath("/calendar");
-    revalidatePath("/");
+    await api.patch(`/v1/caldav/accounts/${uuid(id)}`, { enabled });
+    revalidateSection("/calendar");
     return ok(enabled ? "Account enabled and discovering." : "Account disabled.");
   });
 }
 
 export async function setCalendarEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
-    await api.patch(`/v1/caldav/calendars/${z.string().uuid().parse(id)}`, { enabled });
+    await api.patch(`/v1/caldav/calendars/${uuid(id)}`, { enabled });
     revalidatePath("/calendar");
   });
 }
 
 export async function deleteCalDavAccount(id: string): Promise<ActionResult> {
   return attempt("Calendar account removed.", async () => {
-    await api.delete(`/v1/caldav/accounts/${z.string().uuid().parse(id)}`);
-    revalidatePath("/calendar");
-    revalidatePath("/");
+    await api.delete(`/v1/caldav/accounts/${uuid(id)}`);
+    revalidateSection("/calendar");
   });
 }
 
@@ -456,8 +490,7 @@ export async function updatePolicy(raw: PolicyPatch): Promise<ActionResult> {
   return attempt("Policy updated.", async () => {
     const patch = policyPatchSchema.parse(raw);
     await api.put("/v1/settings/policy", patch);
-    revalidatePath("/settings");
-    revalidatePath("/");
+    revalidateSection("/settings");
     return ok("Saved — it applies to the next call, no restart needed.");
   });
 }
@@ -496,7 +529,7 @@ export async function updateChannelSettings(
   return attempt("Settings saved.", async () => {
     const patch = channelSettingsSchema.parse(raw);
     await api.put(
-      `/v1/users/${z.string().uuid().parse(userId)}/settings/${encodeURIComponent(channel)}`,
+      `/v1/users/${uuid(userId)}/settings/${encodeURIComponent(channel)}`,
       patch,
     );
     revalidatePath("/users");
@@ -536,7 +569,7 @@ export async function createTask(raw: TaskInput): Promise<ActionResult> {
 
 export async function setTaskEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
-    await api.patch(`/v1/tasks/${z.string().uuid().parse(id)}`, { enabled });
+    await api.patch(`/v1/tasks/${uuid(id)}`, { enabled });
     revalidatePath("/tasks");
     return ok(enabled ? "Task resumed and rescheduled." : "Task paused.");
   });
@@ -544,7 +577,7 @@ export async function setTaskEnabled(id: string, enabled: boolean): Promise<Acti
 
 export async function deleteTask(id: string): Promise<ActionResult> {
   return attempt("Task deleted.", async () => {
-    await api.delete(`/v1/tasks/${z.string().uuid().parse(id)}`);
+    await api.delete(`/v1/tasks/${uuid(id)}`);
     revalidatePath("/tasks");
   });
 }
@@ -553,7 +586,7 @@ export async function deleteTask(id: string): Promise<ActionResult> {
 export async function runTaskNow(id: string): Promise<ActionResult> {
   return attempt("Run finished.", async () => {
     const result = await api.post<{ status: "ok" | "failed"; summary: string }>(
-      `/v1/tasks/${z.string().uuid().parse(id)}/run`,
+      `/v1/tasks/${uuid(id)}/run`,
     );
     revalidatePath("/tasks");
     return result.status === "ok"
@@ -580,7 +613,7 @@ export async function createConnector(raw: ConnectorInput): Promise<ActionResult
 
 export async function setConnectorEnabled(id: string, enabled: boolean): Promise<ActionResult> {
   return attempt("Updated.", async () => {
-    const connectorId = z.string().uuid().parse(id);
+    const connectorId = uuid(id);
     await api.patch(`/v1/connectors/${connectorId}`, { enabled });
     revalidatePath("/connectors");
     revalidatePath(`/connectors/${connectorId}`);
@@ -588,7 +621,7 @@ export async function setConnectorEnabled(id: string, enabled: boolean): Promise
 }
 
 export async function deleteConnector(id: string): Promise<ActionResult> {
-  const connectorId = z.string().uuid().parse(id);
+  const connectorId = uuid(id);
   const result = await attempt("Connector removed.", async () => {
     await api.delete(`/v1/connectors/${connectorId}`);
     revalidatePath("/connectors");
@@ -631,7 +664,7 @@ export async function createEndpoint(raw: EndpointInput): Promise<ActionResult> 
 
 export async function deleteEndpoint(id: string, connectorId: string): Promise<ActionResult> {
   return attempt("Endpoint removed.", async () => {
-    await api.delete(`/v1/endpoints/${z.string().uuid().parse(id)}`);
+    await api.delete(`/v1/endpoints/${uuid(id)}`);
     revalidatePath(`/connectors/${connectorId}`);
     revalidatePath("/connectors");
   });

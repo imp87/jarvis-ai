@@ -44,6 +44,38 @@ test("update and delete accept their own natural phrasings", () => {
   }
 });
 
+test("moving an appointment earlier is a request, joined or separable", () => {
+  // Reported from a real chat on 2026-08-11: this was refused outright, the
+  // model reported "der Kalenderdienst hat den Auftrag abgelehnt", and only a
+  // rephrasing to "verschiebe …" got through. The audit row shows the refusal
+  // (durationMs 3, no CalDAV round trip) against the later success (889ms).
+  for (const phrase of [
+    "Zieh meinen Zahnarzt Termin auf den 17 August vor",
+    "Zieh den Termin bitte vor.",
+    "Kannst du den Zahnarzt vorziehen?",
+    "Bitte den Termin vorzuziehen.",
+    "Verleg den Zahnarzt vor auf Montag.",
+  ]) {
+    assert.equal(isExplicitCalendarRequest(phrase, "update"), true, phrase);
+  }
+});
+
+test("a separable prefix survives a date and a time between the two halves", () => {
+  // The window was 40 characters, which a normal sentence carrying both a day
+  // and a clock time overruns — so these were silently refused.
+  assert.equal(
+    isExplicitCalendarRequest("Sag den Zahnarzt am Dienstag um 14 Uhr bitte ab.", "delete"),
+    true,
+  );
+  assert.equal(
+    isExplicitCalendarRequest(
+      "Leg mir am Mittwoch um 9 Uhr einen Termin beim Steuerberater an.",
+      "create",
+    ),
+    true,
+  );
+});
+
 test("an utterance that asks for nothing cannot reach a write", () => {
   // The threat this exists for: a tool result or mail body steering a write
   // while the user only asked to be read to.
@@ -68,6 +100,30 @@ test("a refusal ahead of the verb is not consent", () => {
   assert.equal(isExplicitCalendarRequest("Nicht löschen bitte.", "delete"), false);
   assert.equal(isExplicitCalendarRequest("Kein Termin anlegen.", "create"), false);
   assert.equal(isExplicitCalendarRequest("Warte, noch nicht verschieben.", "update"), false);
+});
+
+test("a refusal AFTER the verb is not consent either", () => {
+  // German puts the refusal behind the verb at least as often as in front of
+  // it, and a separable construction puts it between the two halves. The gate
+  // used to read only the run-up, so every one of these counted as approval.
+  assert.equal(isExplicitCalendarRequest("Zieh den Termin bitte nicht vor.", "update"), false);
+  assert.equal(isExplicitCalendarRequest("Sag den Termin bitte nicht ab.", "delete"), false);
+  assert.equal(isExplicitCalendarRequest("Lösch das nicht.", "delete"), false);
+  assert.equal(isExplicitCalendarRequest("Trag das bitte nicht ein.", "create"), false);
+  assert.equal(isExplicitCalendarRequest("Verschieb das nicht.", "update"), false);
+});
+
+test("the veto window did not widen along with the prefix window", () => {
+  // A refusal that is genuinely about something else, far ahead of the verb,
+  // must not read as one — otherwise widening the prefix window would trade a
+  // false refusal for a different false refusal.
+  assert.equal(
+    isExplicitCalendarRequest(
+      "Nicht der 18. war gemeint, sondern ein anderer Tag — verschieb ihn auf den 17.",
+      "update",
+    ),
+    true,
+  );
 });
 
 // --- Writing iCalendar -----------------------------------------------------

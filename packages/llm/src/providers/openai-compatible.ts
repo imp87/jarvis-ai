@@ -320,14 +320,13 @@ export class OpenAICompatibleProvider implements ChatProvider {
             throw new UnsupportedParameterError(parsed.param);
           }
         }
+        const retryAfter = retryAfterMs(response, text);
         throw new ProviderError(
           `${this.name} ${response.status}: ${text.slice(0, 500)}`,
           this.name,
           {
             status: response.status,
-            ...(retryAfterMs(response, text) !== undefined
-              ? { retryAfterMs: retryAfterMs(response, text) }
-              : {}),
+            ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
           },
         );
       }

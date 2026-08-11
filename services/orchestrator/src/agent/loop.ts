@@ -71,8 +71,7 @@ export function trimHistory(messages: LlmMessage[], maxChars: number): LlmMessag
 }
 
 function startsWithOrphanedToolResult(message: LlmMessage | undefined): boolean {
-  if (!message || typeof message.content === "string") return false;
-  return message.content.some((block) => block.type === "tool_result");
+  return message?.content.some((block) => block.type === "tool_result") ?? false;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import type { McpServerRow, RegistryRepository } from "@jarvis/db";
 import { AppError, NotFoundError, decryptSecret, encryptSecret } from "@jarvis/shared";
 import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
@@ -95,11 +96,58 @@ const updateMcpServerSchema = z.object({
     .optional(),
 });
 
+const uuidSchema = z.string().uuid();
+
+/** A path parameter, rejected as a 400 rather than reaching the SQL. */
+function pathId(value: unknown): string {
+  return uuidSchema.parse(value);
+}
+
+type McpServerPatch = z.infer<typeof updateMcpServerSchema>;
+type McpServerColumns = Parameters<RegistryRepository["updateMcpServer"]>[1];
+
 /**
- * Postgres reports a duplicate name as 23505. Left unhandled it surfaces as a
- * 500 with a raw constraint name, which reads like the server broke when in
- * fact the caller picked a name that is already taken.
+ * Translates a request patch into the columns to write.
+ *
+ * Absence and explicit null mean different things for every credential field:
+ * omitting a key leaves the stored value alone, while `null` deliberately
+ * clears it. Building the object key by key keeps those two apart — the UI
+ * cannot show what is stored, so "untouched" must never be read as "clear it".
+ *
+ * The OAuth client config is merged rather than replaced, because the form
+ * submits only the fields that were typed and the client secret is write-only.
  */
+function toMcpServerColumns(
+  patch: McpServerPatch,
+  existing: McpServerRow,
+  masterKey: Buffer,
+): McpServerColumns {
+  const columns: McpServerColumns = {};
+  if (patch.description !== undefined) columns.description = patch.description;
+  if (patch.url !== undefined) columns.url = patch.url;
+  if (patch.command !== undefined) columns.command = patch.command;
+  if (patch.args !== undefined) columns.args = patch.args;
+  if (patch.authMode !== undefined) columns.authMode = patch.authMode;
+  if (patch.secrets !== undefined) {
+    columns.secretsEnc =
+      patch.secrets === null ? null : encryptSecret(JSON.stringify(patch.secrets), masterKey);
+  }
+  if (patch.oauth !== undefined) {
+    columns.oauthConfigEnc =
+      patch.oauth === null
+        ? null
+        : encryptSecret(
+            JSON.stringify({
+              ...readOAuthConfig(existing.oauthConfigEnc, masterKey),
+              ...patch.oauth,
+            }),
+            masterKey,
+          );
+  }
+  return columns;
+}
+
+/** The stored OAuth client config, or `{}` if it is absent or undecryptable. */
 function readOAuthConfig(encrypted: string | null, masterKey: Buffer): Record<string, string> {
   if (!encrypted) return {};
   try {
@@ -112,6 +160,11 @@ function readOAuthConfig(encrypted: string | null, masterKey: Buffer): Record<st
   }
 }
 
+/**
+ * Postgres reports a duplicate name as 23505. Left unhandled it surfaces as a
+ * 500 with a raw constraint name, which reads like the server broke when in
+ * fact the caller picked a name that is already taken.
+ */
 function rethrowDuplicateAs409(err: unknown, what: string, name: string): never {
   if ((err as { code?: string }).code === "23505") {
     throw new AppError(
@@ -134,6 +187,28 @@ function rethrowDuplicateAs409(err: unknown, what: string, name: string): never 
 export function registryRoutes(container: Container): Router {
   const router = Router();
   const { repos, masterKey, mcp, mcpOauth, logger } = container;
+
+  /**
+   * Connects a server and reports the outcome instead of throwing.
+   *
+   * Both registration and editing treat "saved, but not reachable" as a normal
+   * result rather than a failure: the stored row is exactly what the operator
+   * asked for, and rolling it back would only make the next attempt guesswork.
+   * The reason travels back in the response so the UI can show it — the whole
+   * point of attaching the server is knowing whether it works.
+   */
+  async function connectAndReport(
+    row: McpServerRow,
+    context: string,
+  ): Promise<{ connected: boolean; connectError?: string }> {
+    try {
+      await mcp.connect(await toMcpServerConfig(row, masterKey, logger, mcpOauth));
+      return { connected: true };
+    } catch (err) {
+      logger.error({ server: row.name, err: String(err) }, `MCP connect failed after ${context}`);
+      return { connected: false, connectError: (err as Error).message };
+    }
+  }
 
   // --- Connectors ----------------------------------------------------------
 
@@ -192,7 +267,7 @@ export function registryRoutes(container: Container): Router {
   router.post(
     "/v1/connectors/:id/endpoints",
     asyncHandler(async (req, res) => {
-      const connectorId = z.string().uuid().parse(req.params["id"]);
+      const connectorId = pathId(req.params["id"]);
       const connector = await repos.registry.getConnector(connectorId);
       if (!connector) throw new NotFoundError("connector not found");
 
@@ -213,7 +288,7 @@ export function registryRoutes(container: Container): Router {
   router.patch(
     "/v1/connectors/:id",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
       await repos.registry.setConnectorEnabled(id, enabled);
       res.json({ id, enabled });
@@ -223,7 +298,7 @@ export function registryRoutes(container: Container): Router {
   router.delete(
     "/v1/connectors/:id",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       if (!(await repos.registry.deleteConnector(id))) throw new NotFoundError("connector not found");
       res.status(204).end();
     }),
@@ -232,7 +307,7 @@ export function registryRoutes(container: Container): Router {
   router.delete(
     "/v1/endpoints/:id",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       if (!(await repos.registry.deleteEndpoint(id))) throw new NotFoundError("endpoint not found");
       res.status(204).end();
     }),
@@ -298,18 +373,8 @@ export function registryRoutes(container: Container): Router {
 
       // Connect immediately so the tools are usable without a restart. A
       // failure here is reported but does not undo the registration.
-      try {
-        await mcp.connect(await toMcpServerConfig(row, masterKey, logger, mcpOauth));
-        res.status(201).json({ id: row.id, name: row.name, connected: true });
-      } catch (err) {
-        logger.error({ server: row.name, err: String(err) }, "MCP connect failed after registration");
-        res.status(201).json({
-          id: row.id,
-          name: row.name,
-          connected: false,
-          connectError: (err as Error).message,
-        });
-      }
+      const outcome = await connectAndReport(row, "registration");
+      res.status(201).json({ id: row.id, name: row.name, ...outcome });
     }),
   );
 
@@ -329,7 +394,7 @@ export function registryRoutes(container: Container): Router {
   router.patch(
     "/v1/mcp/servers/:id",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       const patch = updateMcpServerSchema.parse(req.body);
       const existing = await repos.registry.getMcpServer(id);
       if (!existing) throw new NotFoundError("mcp server not found");
@@ -338,40 +403,12 @@ export function registryRoutes(container: Container): Router {
         await repos.registry.setMcpServerEnabled(id, patch.enabled);
       }
 
-      const mergedOAuthConfig =
-        patch.oauth === undefined
-          ? undefined
-          : patch.oauth === null
-            ? null
-            : encryptSecret(
-                JSON.stringify({
-                  ...readOAuthConfig(existing.oauthConfigEnc, masterKey),
-                  ...patch.oauth,
-                }),
-                masterKey,
-              );
-
       let row =
-        (await repos.registry.updateMcpServer(id, {
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
-          ...(patch.url !== undefined ? { url: patch.url } : {}),
-          ...(patch.command !== undefined ? { command: patch.command } : {}),
-          ...(patch.args !== undefined ? { args: patch.args } : {}),
-          // Omitted leaves the stored credential alone; an explicit null clears it.
-          ...(patch.secrets !== undefined
-            ? {
-                secretsEnc:
-                  patch.secrets === null ? null : encryptSecret(JSON.stringify(patch.secrets), masterKey),
-              }
-            : {}),
-          ...(patch.authMode !== undefined ? { authMode: patch.authMode } : {}),
-          ...(patch.oauth !== undefined
-            ? {
-                oauthConfigEnc: mergedOAuthConfig,
-              }
-            : {}),
-        })) ?? existing;
+        (await repos.registry.updateMcpServer(id, toMcpServerColumns(patch, existing, masterKey))) ??
+        existing;
 
+      // A new URL is a different provider as far as OAuth is concerned, so the
+      // tokens issued for the old one are discarded rather than replayed.
       if (patch.url !== undefined && row.authMode === "oauth") {
         await repos.registry.setMcpOAuthState(row.id, { tokensEnc: null, status: "not_connected", error: null });
         row = (await repos.registry.getMcpServer(id)) ?? row;
@@ -382,19 +419,7 @@ export function registryRoutes(container: Container): Router {
         await mcp.disconnect(row.name);
         return res.json({ id, enabled, connected: false });
       }
-
-      try {
-        await mcp.connect(await toMcpServerConfig({ ...row, enabled }, masterKey, logger, mcpOauth));
-        return res.json({ id, enabled, connected: true });
-      } catch (err) {
-        logger.error({ server: row.name, err: String(err) }, "MCP connect failed after update");
-        return res.json({
-          id,
-          enabled,
-          connected: false,
-          connectError: (err as Error).message,
-        });
-      }
+      return res.json({ id, enabled, ...(await connectAndReport({ ...row, enabled }, "update")) });
     }),
   );
 
@@ -425,7 +450,7 @@ export function registryRoutes(container: Container): Router {
   router.post(
     "/v1/mcp/servers/:id/oauth/start",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       const server = await repos.registry.getMcpServer(id);
       if (!server) throw new NotFoundError("mcp server not found");
       res.json(await mcpOauth.start(server));
@@ -459,7 +484,7 @@ export function registryRoutes(container: Container): Router {
   router.delete(
     "/v1/mcp/servers/:id",
     asyncHandler(async (req, res) => {
-      const id = z.string().uuid().parse(req.params["id"]);
+      const id = pathId(req.params["id"]);
       const rows = await repos.registry.listMcpServers();
       const row = rows.find((r) => r.id === id);
       if (!row) throw new NotFoundError("mcp server not found");

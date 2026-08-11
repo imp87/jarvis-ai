@@ -151,64 +151,84 @@ export class CalDavService {
     to: Date,
     calendarFilter?: string,
   ): Promise<CalendarEventsResult> {
-    const accounts = await this.listCalendars(userId);
+    const targets = await this.queryableCalendars(userId, calendarFilter);
+    // Every calendar is queried concurrently and reports its own outcome, so one
+    // unreachable server degrades the answer instead of failing it.
+    const outcomes = await Promise.all(
+      targets.map((target) => this.readCalendar(target, from, to)),
+    );
+
     const events: CalendarEventView[] = [];
     const unresolvedRecurring: CalendarEventView[] = [];
     const warnings: string[] = [];
-    const needle = calendarFilter?.trim().toLowerCase();
-
-    const jobs: Array<Promise<void>> = [];
-    for (const { account, calendars } of accounts) {
-      const client = this.clientFor(account);
-      for (const calendar of calendars) {
-        if (!calendar.enabled || !calendar.supportsEvents) continue;
-        if (needle && !calendar.displayName.toLowerCase().includes(needle)) continue;
-        jobs.push(
-          (async () => {
-            try {
-              const result = await client.fetchEvents(calendar.url, from, to, account.timezone);
-              if (!result.expandedByServer) {
-                warnings.push(
-                  `„${calendar.displayName}“: Der Server hat wiederkehrende Termine nicht aufgelöst.`,
-                );
-              }
-              for (const resource of result.resources) {
-                for (const event of resource.events) {
-                  const view: CalendarEventView = {
-                    accountName: account.name,
-                    calendarName: calendar.displayName,
-                    timezone: account.timezone,
-                    event,
-                    source: {
-                      accountId: account.id,
-                      calendarUrl: calendar.url,
-                      readOnly: calendar.readOnly,
-                      href: resource.href,
-                      etag: resource.etag,
-                      siblingCount: resource.events.length,
-                    },
-                  };
-                  if (event.recurring && !result.expandedByServer) unresolvedRecurring.push(view);
-                  else if (overlaps(event, from, to)) events.push(view);
-                }
-              }
-            } catch (err) {
-              const reason = err instanceof CalDavError ? err.message : String(err);
-              warnings.push(`„${calendar.displayName}“ konnte nicht gelesen werden: ${reason}`);
-              this.deps.logger.warn(
-                { account: account.name, calendar: calendar.displayName, err: reason },
-                "CalDAV calendar query failed",
-              );
-            }
-          })(),
-        );
-      }
+    for (const outcome of outcomes) {
+      events.push(...outcome.events);
+      unresolvedRecurring.push(...outcome.unresolvedRecurring);
+      warnings.push(...outcome.warnings);
     }
-    await Promise.all(jobs);
 
     events.sort((a, b) => a.event.start.getTime() - b.event.start.getTime());
     unresolvedRecurring.sort((a, b) => a.event.summary.localeCompare(b.event.summary, "de"));
     return { events, unresolvedRecurring, warnings };
+  }
+
+  /** The user's enabled event calendars, optionally narrowed by name. */
+  private async queryableCalendars(
+    userId: string,
+    calendarFilter?: string,
+  ): Promise<CalendarTarget[]> {
+    const accounts = await this.listCalendars(userId);
+    const needle = calendarFilter?.trim().toLowerCase();
+    const targets: CalendarTarget[] = [];
+    for (const { account, calendars } of accounts) {
+      for (const calendar of calendars) {
+        if (!calendar.enabled || !calendar.supportsEvents) continue;
+        if (needle && !calendar.displayName.toLowerCase().includes(needle)) continue;
+        targets.push({ account, calendar });
+      }
+    }
+    return targets;
+  }
+
+  /** One calendar's contribution. Never rejects — a failure becomes a warning. */
+  private async readCalendar(
+    { account, calendar }: CalendarTarget,
+    from: Date,
+    to: Date,
+  ): Promise<CalendarEventsResult> {
+    try {
+      const result = await this.clientFor(account).fetchEvents(
+        calendar.url,
+        from,
+        to,
+        account.timezone,
+      );
+      const warnings = result.expandedByServer
+        ? []
+        : [`„${calendar.displayName}“: Der Server hat wiederkehrende Termine nicht aufgelöst.`];
+
+      const events: CalendarEventView[] = [];
+      const unresolvedRecurring: CalendarEventView[] = [];
+      for (const resource of result.resources) {
+        for (const event of resource.events) {
+          const view = toEventView({ account, calendar }, resource, event);
+          if (event.recurring && !result.expandedByServer) unresolvedRecurring.push(view);
+          else if (overlaps(event, from, to)) events.push(view);
+        }
+      }
+      return { events, unresolvedRecurring, warnings };
+    } catch (err) {
+      const reason = err instanceof CalDavError ? err.message : String(err);
+      this.deps.logger.warn(
+        { account: account.name, calendar: calendar.displayName, err: reason },
+        "CalDAV calendar query failed",
+      );
+      return {
+        events: [],
+        unresolvedRecurring: [],
+        warnings: [`„${calendar.displayName}“ konnte nicht gelesen werden: ${reason}`],
+      };
+    }
   }
 
   /**
@@ -247,21 +267,9 @@ export class CalDavService {
   }
 
   /** The calendar a new event goes into: the named one, or the only writable one. */
-  async writableCalendars(
-    userId: string,
-    filter?: string,
-  ): Promise<Array<{ account: CalDavAccountRow; calendar: CalDavCalendarRow }>> {
-    const accounts = await this.listCalendars(userId);
-    const needle = filter?.trim().toLowerCase();
-    const writable = [];
-    for (const { account, calendars } of accounts) {
-      for (const calendar of calendars) {
-        if (!calendar.enabled || !calendar.supportsEvents || calendar.readOnly) continue;
-        if (needle && !calendar.displayName.toLowerCase().includes(needle)) continue;
-        writable.push({ account, calendar });
-      }
-    }
-    return writable;
+  async writableCalendars(userId: string, filter?: string): Promise<CalendarTarget[]> {
+    const targets = await this.queryableCalendars(userId, filter);
+    return targets.filter((target) => !target.calendar.readOnly);
   }
 
   async createEvent(
@@ -360,6 +368,34 @@ export class CalDavService {
       return status;
     }
   }
+}
+
+/** A calendar together with the account that owns its credentials and zone. */
+interface CalendarTarget {
+  account: CalDavAccountRow;
+  calendar: CalDavCalendarRow;
+}
+
+/** Pairs an event with everything needed to write it back, and nothing else. */
+function toEventView(
+  { account, calendar }: CalendarTarget,
+  resource: { href: string; etag: string | null; events: CalendarEvent[] },
+  event: CalendarEvent,
+): CalendarEventView {
+  return {
+    accountName: account.name,
+    calendarName: calendar.displayName,
+    timezone: account.timezone,
+    event,
+    source: {
+      accountId: account.id,
+      calendarUrl: calendar.url,
+      readOnly: calendar.readOnly,
+      href: resource.href,
+      etag: resource.etag,
+      siblingCount: resource.events.length,
+    },
+  };
 }
 
 function overlaps(event: CalendarEvent, from: Date, to: Date): boolean {

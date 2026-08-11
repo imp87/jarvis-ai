@@ -1,5 +1,13 @@
 import type { EmbeddedMcpTool } from "@jarvis/mcp";
 import { wallTimeToUtc, type ToolResult } from "@jarvis/shared";
+import {
+  GAP,
+  NEGATION_WINDOW,
+  STEM_REST,
+  isExplicitRequest,
+  particle,
+  verb,
+} from "../consent.js";
 import type { CalDavService, CalendarEventView, EventChanges } from "../../services/caldav.js";
 
 export type CalendarAction = "create" | "update" | "delete";
@@ -14,32 +22,8 @@ export type CalendarAction = "create" | "update" | "delete";
  *
  * The verb sets are deliberately generous, including the separable forms that
  * a narrower pattern misses — "trag den Zahnarzt am Montag ein" puts sixteen
- * characters between the verb and its prefix. The model's own judgement is the
- * first filter for what the user wants; this is the backstop that keeps
- * untrusted text from reaching a write at all.
+ * characters between the verb and its prefix.
  */
-/**
- * Word boundaries that understand German.
- *
- * `\b` is defined in terms of `\w`, which is ASCII-only, so there is no word
- * boundary before the "ä" in "ändere" and `\bänder` can never match. Every stem
- * here is anchored with a Unicode-aware lookaround instead. `\w*` is likewise
- * avoided as a suffix wildcard: it stops dead at the first umlaut.
- */
-const STEM_START = "(?<![\\p{L}\\p{N}])";
-const STEM_REST = "[\\p{L}]*";
-
-function verb(...stems: string[]): RegExp {
-  return new RegExp(`${STEM_START}(?:${stems.join("|")})`, "u");
-}
-
-/** Any of these words, as whole words, anywhere in the remaining clause. */
-function particle(...words: string[]): string {
-  return `${STEM_START}(?:${words.join("|")})(?![\\p{L}\\p{N}])`;
-}
-
-const GAP = "[\\s\\S]{0,40}";
-
 const CALENDAR_VERBS: Record<CalendarAction, readonly RegExp[]> = {
   create: [
     verb(`(?:ein)?trag${STEM_REST}`),
@@ -54,7 +38,13 @@ const CALENDAR_VERBS: Record<CalendarAction, readonly RegExp[]> = {
   ],
   update: [
     verb(`verschieb${STEM_REST}`, "zu\\s+verschieben"),
-    verb(`verleg${STEM_REST}`, `umleg${STEM_REST}`, `schieb${STEM_REST}`),
+    // "vorverlegen"/"zurückverlegen" carry their own prefix, so the stem is no
+    // longer at a word start and `verleg…` alone can never match them.
+    verb(`(?:vor|zurück)?verleg${STEM_REST}`, `umleg${STEM_REST}`, `schieb${STEM_REST}`),
+    // Moving an appointment earlier. Both the joined form ("vorziehen") and the
+    // separable one people actually speak ("zieh den Termin … vor").
+    verb(`vor(?:zu)?zieh${STEM_REST}`),
+    verb(`zieh${STEM_REST}${GAP}${particle("vor")}`),
     verb(`(?:ver)?änder${STEM_REST}`, `ändr${STEM_REST}`),
     verb(`leg${STEM_REST}${GAP}${particle("um")}`),
     verb(`aktualisier${STEM_REST}`, `korrigier${STEM_REST}`),
@@ -70,21 +60,31 @@ const CALENDAR_VERBS: Record<CalendarAction, readonly RegExp[]> = {
   ],
 };
 
-/** A refusal ahead of the verb, matching how the hangup gate reads negation. */
-const NEGATED = new RegExp(
-  `${STEM_START}(?:nicht|kein(?:en|e|er|es)?|niemals|nie|warte|stopp?)(?![\\p{L}\\p{N}])[\\s\\S]{0,40}$`,
-  "u",
-);
+const REFUSAL = particle("nicht", "kein(?:en|e|er|es)?", "niemals", "nie", "warte", "stopp?");
+
+/** A refusal in the run-up to the verb. Anchored to the end of `before`. */
+const NEGATED_BEFORE = new RegExp(`${REFUSAL}${NEGATION_WINDOW}$`, "u");
+
+/**
+ * A refusal following the verb. Anchored to the start of the match.
+ *
+ * German puts the refusal after the verb at least as often as before it —
+ * "lösch das nicht", "verschieb das nicht", "sag den Termin nicht ab" — and a
+ * separable construction puts it *between* the two halves, inside the match.
+ * Checking only the run-up let every one of those through as consent, which is
+ * how "Zieh den Termin bitte nicht vor" would have moved the appointment.
+ *
+ * This mirrors how the mail gate has always read negation; the calendar gate
+ * was the outlier.
+ */
+const NEGATED_AFTER = new RegExp(`^${NEGATION_WINDOW}${REFUSAL}`, "u");
 
 export function isExplicitCalendarRequest(value: string, action: CalendarAction): boolean {
-  const text = value.toLocaleLowerCase("de-DE").replace(/[^\p{L}\p{N}\s]/gu, " ");
-  for (const pattern of CALENDAR_VERBS[action]) {
-    const match = pattern.exec(text);
-    if (!match) continue;
-    if (NEGATED.test(text.slice(0, match.index))) continue;
-    return true;
-  }
-  return false;
+  return isExplicitRequest(value, {
+    patterns: CALENDAR_VERBS[action],
+    vetoes: (text, before) =>
+      NEGATED_BEFORE.test(before) || NEGATED_AFTER.test(text.slice(before.length)),
+  });
 }
 
 /**

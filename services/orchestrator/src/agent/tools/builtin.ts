@@ -1,25 +1,31 @@
 import { callRequestSchema, type ExecutableTool, type ToolResult } from "@jarvis/shared";
+import { isExplicitRequest } from "../consent.js";
 import type { MemoryService } from "../../services/memory.js";
 import type { CallService } from "../../services/calls.js";
 
+/**
+ * A refusal anywhere near a hangup verb. Unlike the calendar gate this looks at
+ * the whole utterance rather than only the run-up, because "leg nicht auf" puts
+ * the refusal between the verb and its prefix.
+ */
+const NEGATED_HANGUP =
+  /\b(?:nicht|kein(?:en|e|er|es)?|niemals|nie|bloß nicht|auf keinen fall)\b[\s\S]{0,40}\b(?:aufleg\w*|beend\w*|schluss\s+mach\w*)\b/u;
+
+const HANGUP_REQUESTS: readonly RegExp[] = [
+  // Filler words routinely land between the verb and its detached prefix
+  // ("lege jetzt auf"). Only known fillers are allowed through, so that
+  // "leg die Unterlagen auf den Tisch" still does not end the call.
+  /\b(?:leg(?:e|st|t)?\s+(?:(?:bitte|jetzt|dann|mal|einfach|gleich|schon|ruhig|nun)\s+){0,3}auf\b|aufleg\w*)\b/u,
+  /\b(?:beend(?:e|et)?\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch)|beend\w*\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch))\b/u,
+  /\b(?:tschüss|tschuess|auf\s+wiedersehen|bis\s+bald)\b/u,
+];
+
 /** End a call only on an unambiguous, affirmative signal from the caller. */
 export function isExplicitHangupRequest(value: string): boolean {
-  const text = value.toLocaleLowerCase("de-DE").replace(/[^\p{L}\p{N}\s]/gu, " ");
-  if (
-    /\b(?:nicht|kein(?:en|e|er|es)?|niemals|nie|bloß nicht|auf keinen fall)\b[\s\S]{0,40}\b(?:aufleg\w*|beend\w*|schluss\s+mach\w*)\b/u.test(
-      text,
-    )
-  ) {
-    return false;
-  }
-  return [
-    // Filler words routinely land between the verb and its detached prefix
-    // ("lege jetzt auf"). Only known fillers are allowed through, so that
-    // "leg die Unterlagen auf den Tisch" still does not end the call.
-    /\b(?:leg(?:e|st|t)?\s+(?:(?:bitte|jetzt|dann|mal|einfach|gleich|schon|ruhig|nun)\s+){0,3}auf\b|aufleg\w*)\b/u,
-    /\b(?:beend(?:e|et)?\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch)|beend\w*\s+(?:bitte\s+)?(?:den\s+)?(?:anruf|das\s+gespräch))\b/u,
-    /\b(?:tschüss|tschuess|auf\s+wiedersehen|bis\s+bald)\b/u,
-  ].some((pattern) => pattern.test(text));
+  return isExplicitRequest(value, {
+    patterns: HANGUP_REQUESTS,
+    vetoes: (text) => NEGATED_HANGUP.test(text),
+  });
 }
 
 /**

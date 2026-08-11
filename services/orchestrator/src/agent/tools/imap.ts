@@ -1,5 +1,6 @@
 import type { EmailRepository } from "@jarvis/db";
 import type { EmbeddedMcpTool } from "@jarvis/mcp";
+import { isExplicitRequest } from "../consent.js";
 import type { SmtpService } from "../../services/smtp.js";
 
 /** Read-only tools for the local mirror maintained by the embedded IMAP watcher. */
@@ -162,15 +163,18 @@ const SEND_APPROVALS: readonly RegExp[] = [
   /\bich\s+(?:bestätige|genehmige)\s+(?:den\s+)?(?:entwurf|versand)\b/u,
 ];
 
-/** Send a draft only on an unambiguous, affirmative release from the user. */
+/**
+ * Send a draft only on an unambiguous, affirmative release from the user.
+ *
+ * The draft ID is selected by the model from the active conversation, so a
+ * direct confirmation immediately after it was shown is a valid approval as
+ * well. A bare "ja" is deliberately not consent: it is too easy to misattach.
+ */
 export function isExplicitSendApproval(value: string): boolean {
-  // Strip punctuation so a trailing "ab." still reads as its own word.
-  const text = value.toLocaleLowerCase("de-DE").replace(/[^\p{L}\p{N}\s]/gu, " ");
-  // The draft ID is selected by the model from the active conversation, so a
-  // direct confirmation immediately after it was shown is a valid approval as
-  // well. Do not treat a bare "ja" as consent: it is too easy to misattach.
-  if (NEGATED_SEND.test(text)) return false;
-  return SEND_APPROVALS.some((pattern) => pattern.test(text));
+  return isExplicitRequest(value, {
+    patterns: SEND_APPROVALS,
+    vetoes: (text) => NEGATED_SEND.test(text),
+  });
 }
 
 function extractReplyAddress(value: string): string {
