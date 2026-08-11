@@ -15,6 +15,16 @@ export interface RealtimeSessionOptions {
   idleHangupMs: number;
   /** Private, server-generated context for the first delegated caller turn. */
   outboundContext?: string | undefined;
+  /**
+   * Set when we called somebody who is not the owner.
+   *
+   * Turns then go to `/v1/calls/:id/turn`, whose authority comes from the call
+   * record. The owner's inbound path cannot be used: it checks the identity
+   * allowlist, and a stranger is by definition not on it — which is why every
+   * third-party turn came back 403 and the assistant improvised as if it were
+   * still talking to its owner.
+   */
+  thirdPartyCallId?: string | undefined;
 }
 
 type RealtimeEvent = {
@@ -111,6 +121,41 @@ export class RealtimeCallSession {
     return result;
   }
 
+  /**
+   * What the Realtime model itself is told about who it is talking to.
+   *
+   * This is separate from the orchestrator's system prompt and was the second
+   * half of the same bug: even with delegation working, the model spoke the
+   * delegated reply "in the same butler persona" — which addresses the far end
+   * as Master. On a call to a stranger both had to change.
+   */
+  private voiceInstructions(): string {
+    if (this.options.thirdPartyCallId) {
+      return (
+        "You are a digital assistant placing a call on behalf of your owner. THE PERSON ON THE " +
+        "PHONE IS NOT YOUR OWNER: never say 'Master', never address them as if they were the " +
+        "person who gave you the errand, and use polite German 'Sie' throughout. Speak German " +
+        "naturally and concisely at a brisk conversational pace. " +
+        "For every utterance that needs an answer, call jarvis_turn exactly once with its " +
+        "faithful transcription. Do not answer yourself before that function returns. After it " +
+        "returns, speak the reply faithfully and add nothing of your own — no promises, no " +
+        "agreements, no details about your owner. Never infer that a call should end; the " +
+        "delegated response controls that."
+      );
+    }
+    return (
+      "You are Jarvis, Master's private butler and the real-time phone voice for his personal " +
+      "assistant. Speak German naturally, concisely, confidently, and at a brisk conversational " +
+      "pace; never draw out words. Be cool, capable, discreet, and lightly dry-witted, never " +
+      "theatrical or servile. Use 'Master' naturally in the greeting and occasionally when it " +
+      "fits, never as a verbal tic. " +
+      "For every caller utterance that needs an answer, call jarvis_turn exactly once with its " +
+      "faithful transcription. Do not answer the caller yourself before that function returns. " +
+      "After it returns, speak the reply faithfully in the same butler persona. Never infer that " +
+      "a call should end; the delegated Jarvis response controls that safely."
+    );
+  }
+
   private async connect(): Promise<void> {
     const url = new URL("wss://api.openai.com/v1/realtime");
     url.searchParams.set("model", this.options.model);
@@ -158,16 +203,7 @@ export class RealtimeCallSession {
         // their transcript automatically; requesting text and audio together
         // is not valid in the current schema.
         output_modalities: ["audio"],
-        instructions:
-          "You are Jarvis, Master's private butler and the real-time phone voice for his personal " +
-          "assistant. Speak German naturally, concisely, confidently, and at a brisk conversational " +
-          "pace; never draw out words. Be cool, capable, discreet, and lightly dry-witted, never " +
-          "theatrical or servile. Use 'Master' naturally in the greeting and occasionally when it " +
-          "fits, never as a verbal tic. " +
-          "For every caller utterance that needs an answer, call jarvis_turn exactly once with its " +
-          "faithful transcription. Do not answer the caller yourself before that function returns. " +
-          "After it returns, speak the reply faithfully in the same butler persona. Never infer that " +
-          "a call should end; the delegated Jarvis response controls that safely.",
+        instructions: this.voiceInstructions(),
         // The current Realtime schema nests both the voice and formats under
         // audio.output/audio.input. The former top-level fields are silently
         // ignored by newer sessions, which leaves OpenAI's default voice on.
@@ -395,7 +431,21 @@ export class RealtimeCallSession {
           },
           "realtime delegation failed",
         );
-        output = { reply: "Entschuldigung, da ist bei mir gerade etwas schiefgelaufen." };
+        // On a call to a stranger, improvising onward is worse than stopping:
+        // the previous behaviour produced four turns of an assistant chatting
+        // to a hairdresser about what its owner might need next. Apologise once
+        // and let the call end.
+        output = this.options.thirdPartyCallId
+          ? {
+              reply:
+                "Entschuldigung, bei mir ist gerade ein technisches Problem aufgetreten. " +
+                "Ich melde mich noch einmal. Auf Wiederhören.",
+              endCall: true,
+            }
+          : { reply: "Entschuldigung, da ist bei mir gerade etwas schiefgelaufen." };
+        if (this.options.thirdPartyCallId) {
+          this.pendingEndCall = { reason: "delegation failed on a third-party call" };
+        }
       }
     }
 

@@ -12,6 +12,8 @@ export interface CallServiceOptions {
   /** Voice pipeline base URL. When absent, calls are recorded but not placed. */
   voicePipelineUrl?: string | undefined;
   serviceToken: string;
+  /** Used only to tell the owner's own number from everyone else's. */
+  ownerPhoneNumber?: string | undefined;
   /**
    * Allowance for the orchestrator's own alarms, separate from the agent's.
    *
@@ -130,6 +132,12 @@ export class CallService {
           toNumber: request.toNumber,
           context: request.context,
           reason: request.reason,
+          // The pipeline cannot work this out: it never learns the owner's own
+          // number. It decides the persona and the delegation route from this.
+          counterpart:
+            this.options.ownerPhoneNumber && request.toNumber === this.options.ownerPhoneNumber
+              ? "owner"
+              : "third_party",
         }),
       });
       if (!response.ok) {

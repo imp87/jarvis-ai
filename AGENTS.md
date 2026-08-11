@@ -46,6 +46,16 @@ Last reviewed: 2026-08-09.
   and draws on `SYSTEM_ALERT_CALLS_PER_HOUR`/`_PER_DAY`. The split exists so a
   day of reminders cannot exhaust the channel that reports a failure. No tool
   reaches `system_alert`, so the model cannot route itself past quiet hours.
+- A turn spoken by somebody who is *not* the owner goes to `POST
+  /v1/calls/:id/turn`, never `/v1/messages/inbound`. The inbound path checks the
+  identity allowlist, which the far end of an outbound call can never satisfy —
+  it answered every third-party utterance with a 403. Authority comes from the
+  call record instead: the orchestrator placed that call, at the owner's
+  request, to a number that passed both outbound switches. Their words go into a
+  conversation of their own (never the owner's thread), `allowSideEffects` is
+  false so nothing said on the phone can send mail or write the calendar, and
+  the prompt uses `counterpart: "third_party"` — the owner persona addresses the
+  caller as "Master" and must not be reached by a stranger.
 - A phone number the agent dials never originates from the model. It comes from
   a `contacts` row the owner approved (`allow_calls`), or it appears literally
   in the owner's current message — both checked in `services/call-targets.ts`

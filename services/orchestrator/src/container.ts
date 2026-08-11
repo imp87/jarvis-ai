@@ -132,6 +132,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     {
       voicePipelineUrl: env.VOICE_PIPELINE_URL,
       serviceToken: env.SERVICE_TOKEN,
+      ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
       systemAlertBudget: {
         maxPerHour: env.SYSTEM_ALERT_CALLS_PER_HOUR,
         maxPerDay: env.SYSTEM_ALERT_CALLS_PER_DAY,

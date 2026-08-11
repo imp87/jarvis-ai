@@ -46,6 +46,8 @@ const speech = buildSpeech({
 const orchestrator = new OrchestratorClient(env.ORCHESTRATOR_URL, env.SERVICE_TOKEN, logger);
 /** Why the agent is calling, set when the call is queued and used as its opener. */
 const pendingContext = new Map<string, string>();
+/** Owner or stranger, per queued call. See the outbound call schema. */
+const pendingCounterpart = new Map<string, "owner" | "third_party">();
 
 const handleCall = async (
   transport: import("./transport.js").CallTransport,
@@ -53,6 +55,8 @@ const handleCall = async (
 ): Promise<void> => {
   const context = pendingContext.get(pending.callId);
   pendingContext.delete(pending.callId);
+  const counterpart = pendingCounterpart.get(pending.callId) ?? "owner";
+  pendingCounterpart.delete(pending.callId);
   const outbound = splitOutboundContext(context);
 
   // An outbound call exists for a concrete reason. Never begin it with the
@@ -67,6 +71,7 @@ const handleCall = async (
     {
       callId: pending.callId,
       direction: pending.direction,
+      counterpart,
       mode: env.VOICE_MODE,
       ...(env.VOICE_MODE === "realtime" ? { realtimeVoice: env.OPENAI_REALTIME_VOICE } : {}),
     },
@@ -84,6 +89,9 @@ const handleCall = async (
           greeting,
           idleHangupMs: env.VOICE_IDLE_HANGUP_MS,
           ...(outbound.agentContext ? { outboundContext: outbound.agentContext } : {}),
+          // A stranger's turns go through the call-scoped route instead of the
+          // owner's inbound path, which would reject them outright.
+          ...(counterpart === "third_party" ? { thirdPartyCallId: pending.callId } : {}),
         }).run()
       : await new CallSession(transport, speech, orchestrator, pending.channelUserId, logger, {
           greeting,
@@ -139,7 +147,9 @@ const media = new WebSocketMediaServer(
     );
   },
 );
-const app = createApp({ env, logger, orchestrator, media, originator, pendingContext });
+const app = createApp({
+  env, logger, orchestrator, media, originator, pendingContext, pendingCounterpart,
+});
 const server = app.listen(env.VOICE_PIPELINE_PORT, () => {
   logger.info(
     { http: env.VOICE_PIPELINE_PORT, media: "websocket/slin16" },

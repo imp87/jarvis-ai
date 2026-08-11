@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
-import { callRequestSchema, channelNameSchema } from "@jarvis/shared";
+import {
+  BadRequestError,
+  NotFoundError,
+  callRequestSchema,
+  channelNameSchema,
+} from "@jarvis/shared";
 import type { Container } from "../container.js";
 import { asyncHandler } from "../middleware/auth.js";
 
@@ -262,6 +267,80 @@ export function adminRoutes(container: Container): Router {
         "call status reported by the pipeline",
       );
       res.json({ id, status: input.status });
+    }),
+  );
+
+  /**
+   * A spoken turn inside a call the orchestrator itself placed.
+   *
+   * Separate from `/v1/messages/inbound` because the authority is different.
+   * That path asks "is this speaker allowed to talk to Jarvis" and answers with
+   * the identity allowlist — correct for an incoming call, and impossible to
+   * satisfy here: the far end of an outbound call is a stranger by definition,
+   * which is why every third-party call turned into a string of 403s.
+   *
+   * Here the authority comes from the call record instead. The orchestrator
+   * placed this call, at the owner's request, to a number that had to pass both
+   * outbound switches. Who picked up is irrelevant to whether the turn may be
+   * processed — and their words are treated as untrusted throughout:
+   *
+   *   - the transcript goes into its own conversation, never the owner's, so a
+   *     stranger's sentences are not replayed as history in later chats;
+   *   - side effects are switched off, so nothing said on the phone can send
+   *     mail, write the calendar or place another call;
+   *   - the prompt states plainly that the speaker is not the owner.
+   */
+  router.post(
+    "/v1/calls/:id/turn",
+    asyncHandler(async (req, res) => {
+      const callId = z.string().uuid().parse(req.params["id"]);
+      const input = z
+        .object({
+          text: z.string().min(1).max(8_000),
+          /** Returned by the first turn; keeps the call in one transcript. */
+          conversationId: z.string().uuid().optional(),
+        })
+        .parse(req.body);
+
+      const call = await repos.calls.get(callId);
+      if (!call) throw new NotFoundError("call not found");
+      // A finished call must not accept more turns: without this a late or
+      // replayed request could run the agent long after the line closed.
+      if (call.status !== "dialing" && call.status !== "in_progress") {
+        throw new BadRequestError(`call is ${call.status}, not in progress`);
+      }
+
+      // The owner is found through the conversation the call was requested
+      // from — that is the only link between a call row and a person.
+      const owner = call.conversationId
+        ? await repos.conversations.ownerOf(call.conversationId)
+        : null;
+      if (!owner) {
+        throw new BadRequestError("this call has no owning conversation; cannot process a turn");
+      }
+
+      const transcript = input.conversationId
+        ? await repos.conversations.findById(input.conversationId, owner.id)
+        : await repos.conversations.create(owner.id, `Anruf an ${call.toNumber}`);
+      if (!transcript) throw new NotFoundError("call transcript conversation not found");
+
+      const result = await container.agent.run({
+        userId: owner.id,
+        ownerName: owner.displayName,
+        conversationId: transcript.id,
+        channel: "voice_call",
+        text: input.text,
+        // The far end may not cause anything outside the conversation. This is
+        // the single most important line in this handler.
+        allowSideEffects: false,
+        counterpart: "third_party",
+      });
+
+      res.json({
+        reply: result.reply,
+        conversationId: result.conversationId,
+        ...(result.endCall ? { endCall: result.endCall } : {}),
+      });
     }),
   );
 

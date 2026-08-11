@@ -61,6 +61,25 @@ export class ConversationRepository {
   }
 
   /**
+   * The user a conversation belongs to, with the name the agent addresses them by.
+   *
+   * Used to get from a call record back to a person: `call_logs` stores the
+   * conversation the call was requested from and nothing else about who owns
+   * it, and an outbound call to a stranger has no identity of its own to look
+   * up.
+   */
+  async ownerOf(conversationId: string): Promise<{ id: string; displayName: string } | null> {
+    const { rows } = await this.pool.query<{ id: string; display_name: string }>(
+      `SELECT u.id, u.display_name
+         FROM conversations c JOIN users u ON u.id = c.user_id
+        WHERE c.id = $1`,
+      [conversationId],
+    );
+    const row = rows[0];
+    return row ? { id: row.id, displayName: row.display_name } : null;
+  }
+
+  /**
    * Cross-channel continuity: a message with no explicit conversationId
    * continues the user's most recent thread if it is still fresh, otherwise
    * starts a new one. `idleMinutes` is the "this is a new topic" cutoff.

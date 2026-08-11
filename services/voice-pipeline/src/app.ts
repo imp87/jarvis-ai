@@ -13,6 +13,17 @@ const outboundCallSchema = z.object({
   toNumber: z.string(),
   context: z.string(),
   reason: z.string(),
+  /**
+   * Who will pick up. Only the orchestrator knows the owner's own number, so it
+   * decides; the pipeline just carries it through to the session.
+   *
+   * Defaults to `owner` because that is what every call was before third-party
+   * calling existed, and because the owner persona is the safe one to reach by
+   * accident — it addresses the far end as Master, which is merely odd for a
+   * stranger, whereas the reverse would strip the persona from a real reminder
+   * call to the owner.
+   */
+  counterpart: z.enum(["owner", "third_party"]).default("owner"),
 });
 
 export function createApp(deps: {
@@ -23,8 +34,10 @@ export function createApp(deps: {
   originator: CallOriginator;
   /** Context for the next outbound call, keyed by the id the orchestrator gave. */
   pendingContext: Map<string, string>;
+  /** Whether the callee is the owner or a stranger. Decides the persona. */
+  pendingCounterpart: Map<string, "owner" | "third_party">;
 }): Express {
-  const { env, logger, orchestrator, media, originator, pendingContext } = deps;
+  const { env, logger, orchestrator, media, originator, pendingContext, pendingCounterpart } = deps;
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "256kb" }));
@@ -110,6 +123,10 @@ export function createApp(deps: {
     });
     // The agent opens with why it is calling instead of a generic greeting.
     pendingContext.set(callId, parsed.data.context);
+    // Told to us by the orchestrator, which is the only side that knows the
+    // owner's own number. Defaults to `owner`: the persona that addresses the
+    // far end as Master must never be reached by accident.
+    pendingCounterpart.set(callId, parsed.data.counterpart);
 
     try {
       await originator.originate({ callId, toNumber: number.replace(/^\+/, "00") });
@@ -121,6 +138,7 @@ export function createApp(deps: {
       return res.status(202).json({ providerCallId: callId });
     } catch (err) {
       pendingContext.delete(callId);
+      pendingCounterpart.delete(callId);
       logger.error({ err: String(err) }, "failed to queue outbound call");
       return res.status(502).json({ error: "could not place the call" });
     }

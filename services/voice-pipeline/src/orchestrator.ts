@@ -102,6 +102,37 @@ export class OrchestratorClient {
     }
   }
 
+  /**
+   * A spoken turn inside a call we placed to somebody who is not the owner.
+   *
+   * Deliberately not `send()`. That posts to the inbound path, which asks the
+   * identity allowlist whether the speaker may talk to Jarvis — a question a
+   * hairdresser can never answer yes to, which is why every third-party turn
+   * came back 403. Here the call id carries the authority instead.
+   */
+  async sendCallTurn(input: {
+    callId: string;
+    text: string;
+    conversationId?: string;
+  }): Promise<ReplyResult> {
+    const response = await fetch(`${this.baseUrl}/v1/calls/${input.callId}/turn`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.serviceToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        text: input.text,
+        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!response.ok) {
+      throw new Error(`orchestrator returned ${response.status}`);
+    }
+    return (await response.json()) as ReplyResult;
+  }
+
   async send(input: {
     /** The caller's normalised E.164 number — the orchestrator keys on this. */
     channelUserId: string;

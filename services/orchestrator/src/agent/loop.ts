@@ -22,6 +22,11 @@ export interface AgentRunInput {
   profile?: string | undefined;
   /** Untrusted event payloads may be analysed but must not drive external actions. */
   allowSideEffects?: boolean | undefined;
+  /**
+   * Who is on the other end of a voice call. `third_party` swaps the persona:
+   * a stranger the system called must never be addressed as the owner.
+   */
+  counterpart?: "owner" | "third_party" | undefined;
 }
 
 export interface AgentRunResult {
@@ -117,6 +122,7 @@ export class AgentLoop {
       timezone: this.options.timezone,
       now: new Date(),
       memoryContext,
+      ...(input.counterpart ? { counterpart: input.counterpart } : {}),
     });
 
     // Tools a channel cannot support are never offered — see `ExecutableTool.channels`.
