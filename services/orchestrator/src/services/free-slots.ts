@@ -27,6 +27,15 @@ export interface FreeSlotOptions {
   latestHour?: number;
   /** Ceiling on how many are offered. */
   limit?: number;
+  /**
+   * Ceiling per calendar day.
+   *
+   * Without it the list is whatever the first free morning happens to hold —
+   * six slots half an hour apart, which is not a choice anyone can answer on
+   * the phone. Spreading across days is what makes "hätten Sie Mittwoch
+   * vormittags oder lieber Donnerstag nachmittags" possible.
+   */
+  maxPerDay?: number;
   /** Only these weekdays (1 = Monday … 7 = Sunday). Defaults to Mon–Sat. */
   weekdays?: readonly number[];
 }
@@ -35,6 +44,7 @@ const DEFAULTS = {
   earliestHour: 9,
   latestHour: 18,
   limit: 6,
+  maxPerDay: 2,
   weekdays: [1, 2, 3, 4, 5, 6] as const,
 };
 
@@ -49,6 +59,7 @@ export function computeFreeSlots(busy: BusyPeriod[], options: FreeSlotOptions): 
   const earliestHour = options.earliestHour ?? DEFAULTS.earliestHour;
   const latestHour = options.latestHour ?? DEFAULTS.latestHour;
   const limit = options.limit ?? DEFAULTS.limit;
+  const maxPerDay = options.maxPerDay ?? DEFAULTS.maxPerDay;
   const weekdays = options.weekdays ?? DEFAULTS.weekdays;
   const durationMs = options.durationMinutes * 60_000;
 
@@ -59,9 +70,13 @@ export function computeFreeSlots(busy: BusyPeriod[], options: FreeSlotOptions): 
   const slots: CandidateSlot[] = [];
   for (const day of daysBetween(options.from, options.to, options.timezone)) {
     if (!weekdays.includes(day.weekday)) continue;
+    let onThisDay = 0;
 
-    for (let minutes = earliestHour * 60; minutes + options.durationMinutes <= latestHour * 60; minutes += 30) {
+    // Stepped in whole hours rather than half: two slots on a day should be a
+    // real choice, not 09:00 and 09:30.
+    for (let minutes = earliestHour * 60; minutes + options.durationMinutes <= latestHour * 60; minutes += 60) {
       if (slots.length >= limit) return slots;
+      if (onThisDay >= maxPerDay) break;
 
       const start = wallTimeToUtc(
         [day.year, day.month, day.day, Math.floor(minutes / 60), minutes % 60, 0],
@@ -79,6 +94,10 @@ export function computeFreeSlots(busy: BusyPeriod[], options: FreeSlotOptions): 
         startsAt: start.toISOString(),
         endsAt: end.toISOString(),
       });
+      onThisDay += 1;
+      // Second slot of a day goes to the afternoon, so the pair is morning and
+      // afternoon rather than two adjacent hours.
+      if (onThisDay === 1 && minutes < 13 * 60) minutes = 13 * 60 - 60;
     }
   }
   return slots;

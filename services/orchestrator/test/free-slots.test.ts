@@ -14,7 +14,8 @@ test("free time becomes aligned, sayable slots", () => {
   assert.equal(slots.length, 3);
   // 09:00 Berlin on the first day, which is 07:00 UTC in CEST.
   assert.equal(slots[0]?.startsAt, "2026-08-11T07:00:00.000Z");
-  assert.equal(slots[1]?.startsAt, "2026-08-11T07:30:00.000Z");
+  // Second slot of a day is the afternoon, not the next half hour.
+  assert.equal(slots[1]?.startsAt, "2026-08-11T11:00:00.000Z");
   // Ids are short and stable so they can be said and matched back.
   assert.deepEqual(slots.map((s) => s.id), ["s1", "s2", "s3"]);
 });
@@ -77,4 +78,24 @@ test("the spoken form names the day and the time", () => {
   const slots = computeFreeSlots([], { ...base, limit: 1 });
   const text = describeSlots(slots, TZ);
   assert.match(text, /^s1: Dienstag, 11\.08\. um 09:00 Uhr$/);
+});
+
+test("slots are spread across days rather than clustered in one morning", () => {
+  // Six half-hourly slots on one morning is not a choice anyone can answer on
+  // the phone: "hätten Sie 9:00, 9:30, 10:00, 10:30, 11:00 oder 11:30?"
+  const slots = computeFreeSlots([], { ...base, to: new Date("2026-08-20T22:00:00Z"), limit: 6 });
+  const days = new Set(
+    slots.map((s) =>
+      new Intl.DateTimeFormat("en-CA", { timeZone: TZ, dateStyle: "short" })
+        .format(new Date(s.startsAt)),
+    ),
+  );
+  assert.ok(days.size >= 3, `expected at least 3 distinct days, got ${days.size}`);
+  assert.ok(slots.length <= 6);
+});
+
+test("a day offers a morning and an afternoon, never two adjacent hours", () => {
+  const slots = computeFreeSlots([], { ...base, limit: 2 });
+  const gap = new Date(slots[1]!.startsAt).getTime() - new Date(slots[0]!.startsAt).getTime();
+  assert.ok(gap >= 3 * 3_600_000, `slots only ${gap / 3_600_000}h apart`);
 });
