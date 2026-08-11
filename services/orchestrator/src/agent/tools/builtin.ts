@@ -296,8 +296,10 @@ export function buildBuiltinTools(deps: {
           context: {
             type: "string",
             description:
-              "Exact German first sentence that will be spoken. Never a generic greeting and " +
-              "never a question about what they need — this is an outbound call.\n\n" +
+              "Exact German first sentence that will be spoken, as bare text. Do NOT wrap it in " +
+              "quotation marks — whatever you put here is read out verbatim, punctuation and " +
+              "all. Never a generic greeting and never a question about what they need: this " +
+              "is an outbound call.\n\n" +
               "To the OWNER (no `contact`): state the reminder itself, e.g. 'Master, Erinnerung: " +
               "Sie wollten jetzt den Müll rausbringen.'\n\n" +
               "To someone ELSE (`contact` given): introduce yourself as the owner's digital " +
