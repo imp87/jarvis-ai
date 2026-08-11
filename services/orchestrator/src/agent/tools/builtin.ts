@@ -296,9 +296,17 @@ export function buildBuiltinTools(deps: {
           context: {
             type: "string",
             description:
-              "Exact German first sentence for the recipient. State the reason or reminder itself, " +
-              "for example: 'Master, Erinnerung: Sie wollten jetzt den Müll rausbringen.' Never " +
-              "use a generic greeting or ask what they need; this is an outbound call.",
+              "Exact German first sentence that will be spoken. Never a generic greeting and " +
+              "never a question about what they need — this is an outbound call.\n\n" +
+              "To the OWNER (no `contact`): state the reminder itself, e.g. 'Master, Erinnerung: " +
+              "Sie wollten jetzt den Müll rausbringen.'\n\n" +
+              "To someone ELSE (`contact` given): introduce yourself as the owner's digital " +
+              "assistant, then ask for what is needed, using 'Sie'. Promise NOTHING — you do not " +
+              "learn the outcome of this call and nothing you say here reaches the calendar. " +
+              "Never say an appointment will be entered, never tell them to contact the owner " +
+              "themselves. Example: 'Guten Tag, ich bin der digitale Assistent von Steven " +
+              "Dautrich und rufe in seinem Auftrag an. Er sucht einen Termin zum Haareschneiden " +
+              "— hätten Sie diese Woche etwas frei?'",
           },
         },
         required: ["reason", "context"],

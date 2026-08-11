@@ -381,13 +381,30 @@ export class RealtimeCallSession {
         const spokenByCaller = text;
         const outboundContext = this.outboundContextPending;
         this.outboundContextPending = undefined;
-        const reply = await this.orchestrator.send({
-          channelUserId: this.channelUserId,
-          text: outboundContext
-            ? `Ausgehender Anruf – interner Arbeitskontext: ${outboundContext}\n\nAktuelle Aussage von Master: ${text}`
-            : text,
-          ...(this.conversationId ? { conversationId: this.conversationId } : {}),
-        });
+        const thirdPartyCallId = this.options.thirdPartyCallId;
+        // Labelling a stranger's words "Aussage von Master" is how a hairdresser
+        // ended up being addressed as the owner.
+        const speaker = thirdPartyCallId
+          ? "Aussage des Gesprächspartners"
+          : "Aktuelle Aussage von Master";
+        const framed = outboundContext
+          ? `Ausgehender Anruf – interner Arbeitskontext: ${outboundContext}\n\n${speaker}: ${text}`
+          : text;
+        // A stranger's turn goes to the call-scoped route. The inbound path
+        // asks the identity allowlist whether the speaker may talk to Jarvis,
+        // which the far end of an outbound call can never satisfy — it answered
+        // every third-party utterance with a 403.
+        const reply = thirdPartyCallId
+          ? await this.orchestrator.sendCallTurn({
+              callId: thirdPartyCallId,
+              text: framed,
+              ...(this.conversationId ? { conversationId: this.conversationId } : {}),
+            })
+          : await this.orchestrator.send({
+              channelUserId: this.channelUserId,
+              text: framed,
+              ...(this.conversationId ? { conversationId: this.conversationId } : {}),
+            });
         this.conversationId = reply.conversationId;
         this.turns += 1;
         this.lastActivity = Date.now();
