@@ -68,9 +68,28 @@ export class MandateService {
     ownerUtterance: string;
     now?: Date;
   }): Promise<CallMandateRow | undefined> {
-    if (!grantsBookingAuthority(input.ownerUtterance)) return undefined;
-
     const now = input.now ?? new Date();
+
+    // A mandate is always written, even when nothing may be agreed: it is the
+    // record of *what this call is for*, and the booking authority is only an
+    // optional extra on top.
+    //
+    // Without this, a call that merely carries a message stored its errand
+    // nowhere, and the first delegated turn arrived knowing only that a call
+    // was in progress. It then told the person it had rung that it did not know
+    // why it was calling.
+    if (!grantsBookingAuthority(input.ownerUtterance)) {
+      return this.deps.mandates.create({
+        userId: input.userId,
+        callLogId: input.callLogId,
+        contactId: input.contactId ?? null,
+        errand: input.errand,
+        candidateSlots: null,
+        durationMinutes: null,
+        expiresAt: new Date(now.getTime() + 6 * 3_600_000),
+      });
+    }
+
     const horizonDays = this.deps.horizonDays ?? 14;
     const durationMinutes = this.deps.defaultDurationMinutes ?? 60;
     // A slot must be far enough out that the business can still take it — and
