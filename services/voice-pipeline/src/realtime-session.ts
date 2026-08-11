@@ -376,7 +376,10 @@ export class RealtimeCallSession {
         // doing its job — and on an OUTBOUND call to a third party it fires by
         // definition, because the callee is not a registered user. Called out
         // separately so it stops reading like a random failure.
-        const unregistered = /unregistered|identity/i.test(message);
+        // The orchestrator answers a rejected identity with a bare 403, so the
+        // status is the only thing that reaches here — matching on the wording
+        // alone never fired.
+        const unregistered = /\b403\b|unregistered|identity/i.test(message);
         this.logger.error(
           {
             callId: this.transport.callId,
