@@ -256,6 +256,18 @@ export function adminRoutes(container: Container): Router {
         })
         .parse(req.body);
 
+      // An UPDATE against an id that does not exist touches zero rows and says
+      // nothing, which is how a call-id mismatch between the two services hid
+      // for as long as it did: every status report succeeded, every call stayed
+      // `dialing`, and `budgetUsage` counts `dialing`.
+      if (!(await repos.calls.get(id))) {
+        container.logger.warn(
+          { callId: id, status: input.status },
+          "status reported for a call that is not in call_logs; the pipeline and the " +
+            "orchestrator disagree about this call's id",
+        );
+      }
+
       await repos.calls.updateStatus(id, input.status, {
         ...(input.status === "completed" || input.status === "failed"
           ? { endedAt: new Date() }

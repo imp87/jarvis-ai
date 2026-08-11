@@ -9,7 +9,7 @@ import type { CallOriginator } from "./originate.js";
 
 /** Matches what the orchestrator's CallService already sends. */
 const outboundCallSchema = z.object({
-  callId: z.string(),
+  callId: z.string().uuid(),
   toNumber: z.string(),
   context: z.string(),
   reason: z.string(),
@@ -113,7 +113,15 @@ export function createApp(deps: {
       return res.status(400).json({ error: `unusable number: ${parsed.data.toNumber}` });
     }
 
-    const callId = randomUUID();
+    // The orchestrator's id, NOT a fresh one.
+    //
+    // This used to generate its own uuid and throw the orchestrator's away. It
+    // looked harmless because the only thing sent back was a status PATCH, and
+    // `UPDATE … WHERE id = <unknown>` touches zero rows without complaining —
+    // so every outbound call stayed `dialing` in call_logs forever, and
+    // `budgetUsage` counts `dialing`. The turn route was the first thing to
+    // actually *read* the row, and answered 404 on every single turn.
+    const callId = parsed.data.callId;
     media.expect({
       callId,
       direction: "outbound",
