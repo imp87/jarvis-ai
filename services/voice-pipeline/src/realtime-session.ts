@@ -68,6 +68,15 @@ export class RealtimeCallSession {
   // model is not speaking. Cancelling a response that is not running is
   // rejected by OpenAI, so track what is actually in flight.
   private responseActive = false;
+  /**
+   * True until the opening statement has been spoken in full.
+   *
+   * On an outbound call the opening is the entire point — it says who is
+   * calling and why. The callee's "Hallo?" as they pick up is not an
+   * interruption to respect: letting it cancel the greeting means the errand is
+   * never stated, and the two utterances then talk over each other.
+   */
+  private openingStatementPending: boolean;
   private readonly handledFunctionCalls = new Set<string>();
   private sessionConfiguration:
     | { resolve: () => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }
@@ -81,6 +90,9 @@ export class RealtimeCallSession {
     private readonly options: RealtimeSessionOptions,
   ) {
     this.outboundContextPending = options.outboundContext?.trim();
+    // Only outbound calls have an opening worth protecting. An inbound caller
+    // who talks over the greeting is genuinely interrupting.
+    this.openingStatementPending = Boolean(options.thirdPartyCallId);
   }
 
   async run(): Promise<SessionResult> {
@@ -495,6 +507,10 @@ export class RealtimeCallSession {
   }
 
   private interruptPlayback(): void {
+    // Do not cut the opening statement short. Everything the callee says while
+    // it plays is still transcribed and delegated afterwards, so nothing is
+    // lost — it just does not talk over itself.
+    if (this.openingStatementPending) return;
     this.playbackGeneration += 1;
     this.remoteAudio = Buffer.alloc(0);
     this.transport.stopSending();
@@ -506,6 +522,9 @@ export class RealtimeCallSession {
   private async finishResponse(): Promise<void> {
     await this.playback;
     await this.transport.flush();
+    // The opening has now been heard in full, so normal barge-in applies from
+    // here on: from this point an interruption really is one.
+    this.openingStatementPending = false;
     if (this.pendingEndCall && !this.finished) {
       const reason = this.pendingEndCall.reason;
       this.pendingEndCall = undefined;

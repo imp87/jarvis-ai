@@ -344,10 +344,24 @@ export function adminRoutes(container: Container): Router {
       // What this call may agree to, read from the database on every turn
       // rather than carried along: the set has to be the frozen one.
       const mandate = await repos.mandates.findByCall(callId);
-      const briefing = container.mandateService.briefingFor(
-        mandate,
-        container.config.env.QUIET_HOURS_TIMEZONE,
-      );
+      // Why this call exists, on every turn.
+      //
+      // The pipeline used to carry this only when the model had written a magic
+      // `[JARVIS_CONTEXT]` marker into the opening line, which it never does —
+      // so the first delegated turn arrived with no idea a call was even in
+      // progress, and answered a hairdresser's "Hallo?" with "Wer ist dort?"
+      // on a call it had placed itself.
+      const errand = mandate?.errand ?? call.reason;
+      const briefing = [
+        `Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Anlass: ${errand}.`,
+        "Frage nie, wer dran ist oder wie du helfen kannst — das weißt du. Bring den Anlass " +
+          "voran und antworte knapp.",
+        "",
+        container.mandateService.briefingFor(
+          mandate,
+          container.config.env.QUIET_HOURS_TIMEZONE,
+        ),
+      ].join("\n");
 
       await repos.calls.appendTranscript(callId, {
         at: new Date().toISOString(),
