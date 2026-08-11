@@ -227,6 +227,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
   });
   const callResolution = new CallResolutionService({
     calls: repos.calls,
+    contacts: repos.contacts,
     mandates: repos.mandates,
     mandateService,
     caldav,

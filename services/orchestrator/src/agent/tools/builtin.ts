@@ -351,7 +351,15 @@ export function buildBuiltinTools(deps: {
               ...(resolved.target.kind === "contact"
                 ? { contactId: resolved.target.contact.id }
                 : {}),
-              errand: String(args["reason"] ?? "Anruf"),
+              // The opening statement, not `reason`.
+              //
+              // `reason` answers "why does this warrant a call" for the audit
+              // log — "Der Nutzer hat den Anruf ausdrücklich bestätigt" is a
+              // perfectly good answer to that and tells the agent nothing about
+              // what to actually do. Briefed with it, the model invented an
+              // errand mid-call and asked a stranger whether they were taking
+              // on new patients.
+              errand: String(args["context"] ?? args["reason"] ?? "Anruf"),
               ownerUtterance: ctx.lastUserText ?? "",
             })
             // A mandate that cannot be built is not a reason to abandon the

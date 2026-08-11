@@ -1,6 +1,7 @@
 import type {
   CallMandateRow,
   CallRepository,
+  ContactRepository,
   CandidateSlot,
   MandateRepository,
   TranscriptEntry,
@@ -29,6 +30,7 @@ import type { MandateService } from "./mandates.js";
 
 export interface CallResolutionDeps {
   calls: CallRepository;
+  contacts: ContactRepository;
   mandates: MandateRepository;
   mandateService: MandateService;
   caldav: CalDavService;
@@ -218,11 +220,21 @@ export class CallResolutionService {
       return;
     }
 
+    // Named after who it is with, not after why the call was made. `errand` is
+    // the opening statement — a whole sentence, and a useless calendar entry
+    // ("Nach einem Friseurtermin für Steven am 13. August 2026 fragen").
+    const contact = mandate.contactId
+      ? await this.deps.contacts.get(mandate.userId, mandate.contactId).catch(() => null)
+      : null;
+    const summary = contact ? `Termin: ${contact.name}` : "Telefonisch vereinbarter Termin";
+
     try {
       await this.deps.caldav.createEvent(target.account, target.calendar, {
-        summary: mandate.errand,
+        summary,
         location: null,
-        description: `Telefonisch vereinbart (Anruf ${callId}).`,
+        description: `Telefonisch vereinbart.
+
+${mandate.errand}`,
         start,
         end,
         allDay: false,

@@ -351,9 +351,16 @@ export function adminRoutes(container: Container): Router {
       // so the first delegated turn arrived with no idea a call was even in
       // progress, and answered a hairdresser's "Hallo?" with "Wer ist dort?"
       // on a call it had placed itself.
-      const errand = mandate?.errand ?? call.reason;
+      // Only a real errand is stated. `call.reason` is the audit answer to "why
+      // does this warrant a call" and routinely says nothing about the task —
+      // briefed with it, the model filled the gap by inventing one.
+      const errand = mandate?.errand?.trim();
       const briefing = [
-        `Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Anlass: ${errand}.`,
+        errand
+          ? `Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Dein Auftrag, wörtlich: ${errand}`
+          : "Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Der genaue Anlass " +
+            "liegt dir nicht vor — sag das offen und erfinde KEINEN. Frag höflich nach, worum " +
+            "es gehen sollte, oder kündige an, dass du dich noch einmal meldest.",
         "Frage nie, wer dran ist oder wie du helfen kannst — das weißt du. Bring den Anlass " +
           "voran und antworte knapp.",
         "",
