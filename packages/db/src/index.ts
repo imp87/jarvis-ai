@@ -11,3 +11,4 @@ export * from "./repositories/email.js";
 export * from "./repositories/calendar.js";
 export * from "./repositories/notifications.js";
 export * from "./repositories/contacts.js";
+export * from "./repositories/mandates.js";
