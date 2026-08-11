@@ -272,8 +272,27 @@ export class RealtimeCallSession {
         this.interruptPlayback();
         return;
       case "conversation.item.input_audio_transcription.completed":
+        // `info`, not `debug`. LOG_LEVEL is `info` in every deployment, so at
+        // debug this was never actually visible — and what the other party said
+        // is the single most useful line when working out why a call went the
+        // way it did.
         if (event.transcript?.trim()) {
-          this.logger.debug({ callId: this.transport.callId, transcript: event.transcript.trim() }, "realtime transcription completed");
+          this.logger.info(
+            { callId: this.transport.callId, said: event.transcript.trim() },
+            "call: other party said",
+          );
+        }
+        return;
+      // What Jarvis actually spoke, as the model transcribes its own audio.
+      // Both spellings are handled for the same reason the audio deltas are:
+      // the GA event was renamed and older deployments still emit the old one.
+      case "response.output_audio_transcript.done":
+      case "response.audio_transcript.done":
+        if (event.transcript?.trim()) {
+          this.logger.info(
+            { callId: this.transport.callId, said: event.transcript.trim() },
+            "call: Jarvis said",
+          );
         }
         return;
       case "response.function_call_arguments.done":
@@ -339,11 +358,40 @@ export class RealtimeCallSession {
         if (reply.endCall) this.pendingEndCall = reply.endCall;
         output = { reply: reply.reply, ...(reply.endCall ? { endCall: true } : {}) };
         this.logger.info(
-          { callId: this.transport.callId, turn: this.turns, heard: spokenByCaller, orchestratorMs: Date.now() - started },
+          {
+            callId: this.transport.callId,
+            turn: this.turns,
+            heard: spokenByCaller,
+            // What the orchestrator told it to say. Without this the log shows
+            // that a turn happened but not what came of it, which is exactly
+            // what you need when a call goes somewhere unexpected.
+            replied: reply.reply,
+            orchestratorMs: Date.now() - started,
+          },
           "realtime turn delegated",
         );
       } catch (err) {
-        this.logger.error({ callId: this.transport.callId, err: String(err) }, "realtime delegation failed");
+        const message = String(err);
+        // A rejected identity is not a malfunction, it is the identity gate
+        // doing its job — and on an OUTBOUND call to a third party it fires by
+        // definition, because the callee is not a registered user. Called out
+        // separately so it stops reading like a random failure.
+        const unregistered = /unregistered|identity/i.test(message);
+        this.logger.error(
+          {
+            callId: this.transport.callId,
+            channelUserId: this.channelUserId,
+            err: message,
+            ...(unregistered
+              ? {
+                  hint:
+                    "the far end is not a registered identity; an outbound call to a third " +
+                    "party cannot be delegated through the owner's inbound path",
+                }
+              : {}),
+          },
+          "realtime delegation failed",
+        );
         output = { reply: "Entschuldigung, da ist bei mir gerade etwas schiefgelaufen." };
       }
     }

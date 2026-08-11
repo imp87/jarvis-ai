@@ -1,5 +1,10 @@
 import { ContactExistsError, type ContactRepository } from "@jarvis/db";
-import { callRequestSchema, type ExecutableTool, type ToolResult } from "@jarvis/shared";
+import {
+  callRequestSchema,
+  maskPhoneNumber,
+  type ExecutableTool,
+  type ToolResult,
+} from "@jarvis/shared";
 import { isExplicitRequest } from "../consent.js";
 import type { MemoryService } from "../../services/memory.js";
 import type { CallService } from "../../services/calls.js";
@@ -159,6 +164,42 @@ export function buildBuiltinTools(deps: {
       },
     },
   ];
+
+  tools.push({
+    name: "contact_list",
+    description:
+      "List the saved phone contacts and whether each one may be called. Use it BEFORE saying " +
+      "that someone is not saved, and to find the exact name to pass to place_phone_call.\n\n" +
+      "Contacts are NOT in long-term memory — memory_search will never find them, and a miss " +
+      "there says nothing about whether a contact exists.",
+    source: "builtin",
+    sideEffects: false,
+    inputSchema: { type: "object", properties: {} },
+    async execute(_args, ctx): Promise<ToolResult> {
+      const rows = await deps.contacts.list(ctx.userId);
+      if (rows.length === 0) {
+        return {
+          content:
+            "Es ist kein Kontakt gespeichert. Neue Kontakte legt der Nutzer im Admin-UI an, " +
+            "oder er nennt dir Name und Nummer und du benutzt contact_create.",
+        };
+      }
+      return {
+        content: rows
+          .map((contact) => {
+            // Masked deliberately. The model never needs a number — it passes a
+            // name and the lookup happens in code — and a number it holds is a
+            // number it can read out loud on a call.
+            const status = contact.allowCalls
+              ? "anrufbar"
+              : "NICHT freigegeben (der Nutzer muss ihn im Admin-UI freigeben)";
+            const origin = contact.createdBy === "agent" ? ", von dir angelegt" : "";
+            return `- ${contact.name}: ${maskPhoneNumber(contact.phoneE164)} — ${status}${origin}`;
+          })
+          .join("\n"),
+      };
+    },
+  });
 
   tools.push({
     name: "contact_create",
