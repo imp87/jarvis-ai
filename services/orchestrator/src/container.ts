@@ -1,6 +1,7 @@
 import {
   CalendarRepository,
   CallRepository,
+  ContactRepository,
   ConversationRepository,
   EmailRepository,
   IdentityRepository,
@@ -53,6 +54,7 @@ export interface Container {
     emails: EmailRepository;
     calendars: CalendarRepository;
     notifications: NotificationRepository;
+    contacts: ContactRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -90,6 +92,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     emails: new EmailRepository(pool),
     calendars: new CalendarRepository(pool),
     notifications: new NotificationRepository(pool),
+    contacts: new ContactRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -213,7 +216,11 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     ...buildBuiltinTools({
       memory,
       calls,
+      contacts: repos.contacts,
       ownerPhoneNumber: env.OWNER_PHONE_NUMBER,
+      // Two switches guard a call to anyone but the owner: this one, and
+      // `allow_calls` on the contact itself.
+      outboundCallsEnabled: env.OUTBOUND_CALLS_ENABLED,
     }),
     ...buildTaskTools({
       tasks: repos.tasks,

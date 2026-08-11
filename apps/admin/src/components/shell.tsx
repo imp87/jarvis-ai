@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/calendar", label: "Calendar" },
   { href: "/connectors", label: "Connectors" },
   { href: "/tasks", label: "Tasks" },
+  { href: "/contacts", label: "Contacts" },
   { href: "/users", label: "Users" },
   { href: "/settings", label: "Settings" },
 ];

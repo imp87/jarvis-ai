@@ -12,6 +12,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { imapRoutes } from "./routes/imap.js";
 import { caldavRoutes } from "./routes/caldav.js";
+import { contactRoutes } from "./routes/contacts.js";
 
 export function createApp(container: Container): Express {
   const app = express();
@@ -47,6 +48,7 @@ export function createApp(container: Container): Express {
   authed.use(taskRoutes(container));
   authed.use(imapRoutes(container));
   authed.use(caldavRoutes(container));
+  authed.use(contactRoutes(container));
   app.use(authed);
 
   app.use((req, _res, next) => {

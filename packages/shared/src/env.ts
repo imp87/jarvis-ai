@@ -4,6 +4,21 @@ const timeOfDay = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected HH:MM");
 
+/**
+ * An environment flag, spelled out.
+ *
+ * Deliberately not `z.coerce.boolean()`: that is `Boolean(value)`, and every
+ * non-empty string is truthy — so `FLAG=false` would enable the flag. For a
+ * switch whose whole job is to keep something turned off, silently inverting is
+ * the worst possible failure, so unrecognised values are rejected at startup
+ * rather than guessed at.
+ */
+const envFlag = (fallback: boolean) =>
+  z
+    .enum(["true", "false", "1", "0", "yes", "no"])
+    .default(fallback ? "true" : "false")
+    .transform((value) => value === "true" || value === "1" || value === "yes");
+
 export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
@@ -33,6 +48,10 @@ export const baseEnvSchema = z.object({
   // way to be dialled all night. 0 means unlimited, as everywhere else here.
   SYSTEM_ALERT_CALLS_PER_HOUR: z.coerce.number().int().nonnegative().default(1),
   SYSTEM_ALERT_CALLS_PER_DAY: z.coerce.number().int().nonnegative().default(3),
+  // Global kill switch for dialling anyone other than the owner. Off by
+  // default: after a deploy the system calls nobody until this AND `allow_calls`
+  // on the individual contact are both switched on.
+  OUTBOUND_CALLS_ENABLED: envFlag(false),
 
   MAX_LLM_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(60),
   MAX_AGENT_STEPS: z.coerce.number().int().positive().max(50).default(12),

@@ -113,6 +113,19 @@ export interface McpOAuthSettings {
   overridden: boolean;
 }
 
+export interface Contact {
+  id: string;
+  userId: string;
+  name: string;
+  phoneE164: string;
+  note: string | null;
+  /** Whether the agent may dial this number. Only ever set here, in the UI. */
+  allowCalls: boolean;
+  /** 'agent' means Jarvis saved it from something the user said. */
+  createdBy: "user" | "agent";
+  createdAt: string;
+}
+
 export interface ImapAccount {
   id: string;
   userId: string;
@@ -202,6 +215,7 @@ export interface Status {
     maxCallsPerHour: number;
     maxCallsPerDay: number;
     maxAgentSteps: number;
+    outboundCallsEnabled: boolean;
   };
   callBudgetUsage: { lastHour: number; lastDay: number };
 }
@@ -291,3 +305,5 @@ export const getConnectors = () => api.get<{ connectors: Connector[] }>("/v1/con
 export const getStatus = () => api.get<Status>("/v1/status");
 export const getImapAccounts = () => api.get<{ accounts: ImapAccount[] }>("/v1/imap/accounts");
 export const getCalDavAccounts = () => api.get<{ accounts: CalDavAccount[] }>("/v1/caldav/accounts");
+export const getContacts = (userId: string) =>
+  api.get<{ contacts: Contact[] }>(`/v1/contacts?userId=${encodeURIComponent(userId)}`);

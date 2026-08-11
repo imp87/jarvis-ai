@@ -58,6 +58,9 @@ services:
       # quiet hours, which is why the ceiling is deliberately low.
       SYSTEM_ALERT_CALLS_PER_HOUR: ${SYSTEM_ALERT_CALLS_PER_HOUR:-1}
       SYSTEM_ALERT_CALLS_PER_DAY: ${SYSTEM_ALERT_CALLS_PER_DAY:-3}
+      # Second of the two switches guarding a call to anyone but the owner; the
+      # first is allow_calls on the individual contact. Off by default.
+      OUTBOUND_CALLS_ENABLED: ${OUTBOUND_CALLS_ENABLED:-false}
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
       VOICE_PIPELINE_URL: ${VOICE_PIPELINE_URL:-}
       # Lets the orchestrator speak first — scheduled tasks and anything it

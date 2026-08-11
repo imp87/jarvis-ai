@@ -358,3 +358,35 @@ export function emptyEndpoint(connectorId: string): EndpointInput {
     sideEffects: false,
   };
 }
+
+// --- Contacts ---------------------------------------------------------------
+
+/**
+ * A phone contact the agent may be allowed to dial.
+ *
+ * `allowCalls` is deliberately absent here: it is not part of creating a
+ * contact, it is a separate deliberate act on an existing one. Bundling the two
+ * would make "save this number" and "let Jarvis call it" one click.
+ */
+export const contactSchema = z.object({
+  userId: z.string().uuid("choose a user"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "required")
+    .max(80)
+    .regex(/^[\p{L}\p{N} .,'&_-]+$/u, "letters, digits, spaces and . , ' & _ - only"),
+  phone: z
+    .string()
+    .trim()
+    .min(3, "required")
+    .max(40)
+    .regex(/^[+\d][\d\s./()-]*$/, "digits, spaces and + . / ( ) - only"),
+  note: z.string().trim().max(500).default(""),
+});
+
+export type ContactInput = z.infer<typeof contactSchema>;
+
+export function emptyContact(userId = ""): ContactInput {
+  return { userId, name: "", phone: "", note: "" };
+}

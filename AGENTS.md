@@ -46,6 +46,16 @@ Last reviewed: 2026-08-09.
   and draws on `SYSTEM_ALERT_CALLS_PER_HOUR`/`_PER_DAY`. The split exists so a
   day of reminders cannot exhaust the channel that reports a failure. No tool
   reaches `system_alert`, so the model cannot route itself past quiet hours.
+- A phone number the agent dials never originates from the model. It comes from
+  a `contacts` row the owner approved (`allow_calls`), or it appears literally
+  in the owner's current message — both checked in `services/call-targets.ts`
+  against data the model cannot influence. The model only ever passes a
+  *selector*. Calling anyone but the owner needs two switches: that per-contact
+  flag and `OUTBOUND_CALLS_ENABLED`, both off by default.
+- `contact_create` may insert only. Letting the agent update a contact would
+  make an injected "unsere neue Nummer lautet …" inherit an approval the owner
+  already granted, so a name collision is reported and nothing changes. Editing
+  and `allow_calls` live on `/v1/contacts`, which only the admin UI calls.
 - System alerts are never written by the model: wording is fixed in code
   (`services/alerts.ts`). If the LLM is the part that failed, it cannot also be
   the part that reports it. Every incident is persisted to `notifications`

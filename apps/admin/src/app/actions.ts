@@ -13,6 +13,7 @@ import {
   mcpServerSchema,
   imapAccountSchema,
   caldavAccountSchema,
+  contactSchema,
   taskSchema,
   type TaskInput,
   type AuthInput,
@@ -21,6 +22,7 @@ import {
   type McpServerInput,
   type ImapAccountInput,
   type CalDavAccountInput,
+  type ContactInput,
 } from "@/lib/schemas";
 import { SESSION_COOKIE, isCorrectPassword, issueSessionToken } from "@/lib/session";
 
@@ -667,5 +669,57 @@ export async function deleteEndpoint(id: string, connectorId: string): Promise<A
     await api.delete(`/v1/endpoints/${uuid(id)}`);
     revalidatePath(`/connectors/${connectorId}`);
     revalidatePath("/connectors");
+  });
+}
+
+// --- Contacts --------------------------------------------------------------
+
+export async function createContact(raw: ContactInput): Promise<ActionResult> {
+  return attempt("Contact saved.", async () => {
+    const input = contactSchema.parse(raw);
+    await api.post("/v1/contacts", {
+      userId: input.userId,
+      name: input.name,
+      phone: input.phone,
+      ...(input.note ? { note: input.note } : {}),
+      // Never granted at creation time. Allowing a call is its own decision,
+      // made on an existing row — see setContactAllowCalls.
+      allowCalls: false,
+    });
+    revalidatePath("/contacts");
+    return ok(`${input.name} saved. Jarvis cannot call it until you allow it.`);
+  });
+}
+
+/**
+ * The moment a number becomes dialable.
+ *
+ * Separate from every other edit on purpose: this is the only switch in the
+ * system that lets the agent phone someone who is not the owner, and it should
+ * read like a decision rather than a field.
+ */
+export async function setContactAllowCalls(
+  id: string,
+  userId: string,
+  allowCalls: boolean,
+): Promise<ActionResult> {
+  return attempt("Updated.", async () => {
+    await api.patch(
+      `/v1/contacts/${uuid(id)}?userId=${encodeURIComponent(uuid(userId))}`,
+      { allowCalls },
+    );
+    revalidatePath("/contacts");
+    return ok(
+      allowCalls
+        ? "Jarvis may now call this contact."
+        : "Calls to this contact are blocked again.",
+    );
+  });
+}
+
+export async function deleteContact(id: string, userId: string): Promise<ActionResult> {
+  return attempt("Contact removed.", async () => {
+    await api.delete(`/v1/contacts/${uuid(id)}?userId=${encodeURIComponent(uuid(userId))}`);
+    revalidatePath("/contacts");
   });
 }

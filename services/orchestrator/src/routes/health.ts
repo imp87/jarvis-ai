@@ -57,8 +57,14 @@ export function statusRoutes(container: Container): Router {
           // a deployment concern rather than something to tune from a phone.
           maxAgentSteps: container.config.env.MAX_AGENT_STEPS,
           overridden: policy.overridden,
+          // The global half of the outbound-call guard. Environment-only by
+          // design: the other half (`contacts.allow_calls`) is editable from the
+          // UI, and a switch that can be flipped from the same place as the
+          // thing it guards is not much of a second switch.
+          outboundCallsEnabled: container.config.env.OUTBOUND_CALLS_ENABLED,
         },
         callBudgetUsage: await container.repos.calls.budgetUsage(),
+        systemAlertBudgetUsage: await container.repos.calls.budgetUsage("system_alert"),
       });
     }),
   );
