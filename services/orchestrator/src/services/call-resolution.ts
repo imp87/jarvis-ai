@@ -45,6 +45,18 @@ export class CallResolutionService {
   constructor(private readonly deps: CallResolutionDeps) {}
 
   /**
+   * The errand, short enough for a notification.
+   *
+   * `errand` is the opening statement — a whole spoken sentence. Embedded in an
+   * alert it produced messages like: Der Anruf wegen „Guten Tag, ich bin der
+   * digitale Assistent von … und rufe in seinem Auftrag an. …" ist beendet.
+   */
+  private shortErrand(errand: string): string {
+    const compact = errand.replace(/\s+/g, " ").trim();
+    return compact.length <= 70 ? compact : `${compact.slice(0, 70).trimEnd()}…`;
+  }
+
+  /**
    * Called when the pipeline reports a call finished.
    *
    * Never throws: a failure here must not break the status callback, and the
@@ -56,6 +68,22 @@ export class CallResolutionService {
       // No mandate means the call was an enquiry: nothing was authorised, so
       // there is nothing to record and nothing that can have drifted.
       if (!mandate || mandate.state !== "pending") return;
+
+      // A mandate without a slot set carried no booking authority: the call was
+      // an enquiry or a message, and nothing was ever supposed to be agreed.
+      // There is nothing to classify and nothing that can have drifted.
+      //
+      // Every third-party call gets a mandate row now — it is the record of
+      // what the call was for — so without this check every message call ended
+      // by telling the owner that no approved appointment could be recognised,
+      // for a call that never had one.
+      if (!mandate.candidateSlots?.length) {
+        await this.deps.mandates.resolve(mandate.id, {
+          state: "recorded",
+          note: "no booking authority; nothing to resolve",
+        });
+        return;
+      }
 
       if (mandate.expiresAt.getTime() < Date.now()) {
         await this.deps.mandates.resolve(mandate.id, { state: "expired" });
@@ -85,7 +113,7 @@ export class CallResolutionService {
           event: "mandate_unresolved",
           severity: "warning",
           body:
-            `Der Anruf wegen „${mandate.errand}" ist beendet, aber ich konnte keinen der ` +
+            `Der Anruf („${this.shortErrand(mandate.errand)}") ist beendet, aber ich konnte keinen der ` +
             "freigegebenen Termine eindeutig als vereinbart erkennen. Bitte kurz selbst nachsehen.",
           context: { callId, mandateId: mandate.id },
           idempotencyKey: `mandate_unresolved:${mandate.id}`,
@@ -201,7 +229,7 @@ export class CallResolutionService {
     if (events.length > 0) {
       await fail(
         "mandate_slot_conflict",
-        `Beim Anruf wegen „${mandate.errand}" wurde ${when} vereinbart — inzwischen steht in ` +
+        `Beim Anruf wegen „${this.shortErrand(mandate.errand)}" wurde ${when} vereinbart — inzwischen steht in ` +
           "deinem Kalender aber schon etwas anderes. Der Termin ist zugesagt und NICHT eingetragen.",
         "agreed slot was no longer free",
       );
@@ -213,7 +241,7 @@ export class CallResolutionService {
     if (!target) {
       await fail(
         "mandate_write_failed",
-        `Beim Anruf wegen „${mandate.errand}" wurde ${when} vereinbart, aber es gibt keinen ` +
+        `Beim Anruf wegen „${this.shortErrand(mandate.errand)}" wurde ${when} vereinbart, aber es gibt keinen ` +
           "beschreibbaren Kalender. Der Termin ist zugesagt und NICHT eingetragen.",
         "no writable calendar",
       );
@@ -242,7 +270,7 @@ ${mandate.errand}`,
     } catch (err) {
       await fail(
         "mandate_write_failed",
-        `Beim Anruf wegen „${mandate.errand}" wurde ${when} vereinbart, aber der Kalender ` +
+        `Beim Anruf wegen „${this.shortErrand(mandate.errand)}" wurde ${when} vereinbart, aber der Kalender ` +
           `konnte nicht geschrieben werden (${String(err).slice(0, 120)}). Der Termin ist ` +
           "zugesagt und NICHT eingetragen.",
         "calendar write failed",
@@ -259,7 +287,7 @@ ${mandate.errand}`,
       userId: mandate.userId,
       event: "mandate_recorded",
       severity: "info",
-      body: `Termin vereinbart und eingetragen: ${when} — ${mandate.errand}.`,
+      body: `Termin vereinbart und eingetragen: ${when} — ${this.shortErrand(mandate.errand)}.`,
       context: { callId, mandateId: mandate.id },
       idempotencyKey: `mandate_recorded:${mandate.id}`,
     });

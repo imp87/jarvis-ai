@@ -357,7 +357,13 @@ export function adminRoutes(container: Container): Router {
       const errand = mandate?.errand?.trim();
       const briefing = [
         errand
-          ? `Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Dein Auftrag, wörtlich: ${errand}`
+          ? "Du telefonierst gerade. DU hast angerufen, nicht umgekehrt.\n" +
+            // The opening is spoken by the pipeline before the first turn is
+            // ever delegated. Without saying so, the agent introduces itself a
+            // second time and the callee hears the same sentence twice.
+            `Dein Eröffnungssatz wurde BEREITS GESPROCHEN, wörtlich: „${errand}"\n` +
+            "Wiederhole ihn nicht und stell dich nicht noch einmal vor — das hat der Gegenüber " +
+            "schon gehört. Führe das Gespräch von dort aus weiter."
           : "Du telefonierst gerade. DU hast angerufen, nicht umgekehrt. Der genaue Anlass " +
             "liegt dir nicht vor — sag das offen und erfinde KEINEN. Frag höflich nach, worum " +
             "es gehen sollte, oder kündige an, dass du dich noch einmal meldest.",

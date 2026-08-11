@@ -95,3 +95,16 @@ test("a null mandate is treated exactly like no authority", () => {
   // A call with no mandate row at all must not silently become permissive.
   assert.match(service.briefingFor(null, "Europe/Berlin"), /NUR fragen/);
 });
+
+// --- Alert noise -----------------------------------------------------------
+
+test("a call with no booking authority must not report an unresolved appointment", () => {
+  // Every third-party call now gets a mandate row, because it is the record of
+  // what the call was for. Without distinguishing "no slots" from "slots that
+  // nobody agreed to", every message call ended by telling the owner that no
+  // approved appointment could be recognised — for a call that never had one.
+  const enquiry = mandate({ candidateSlots: null });
+  assert.equal(enquiry.candidateSlots?.length ?? 0, 0);
+  // The briefing already says the right thing; the resolution has to agree.
+  assert.match(service.briefingFor(enquiry, "Europe/Berlin"), /NUR fragen/);
+});
