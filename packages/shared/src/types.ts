@@ -83,6 +83,17 @@ export interface ExecutableTool extends ToolDefinition {
   /** True for anything that costs money, sends messages or changes external state. */
   sideEffects: boolean;
   /**
+   * True when the effect cannot leave the conversation it belongs to.
+   *
+   * `sideEffects` exists to stop a turn driven by untrusted input from causing
+   * something in the outside world. Hanging up a call the system itself placed
+   * is not that: it changes nothing beyond the interaction it ends. Without the
+   * distinction, a third-party call — where side effects are switched off
+   * wholesale — leaves the agent unable to end a call it made, waiting on the
+   * stranger or on the idle timer.
+   */
+  confinedToConversation?: boolean;
+  /**
    * Restricts the tool to these channels. Omit to offer it everywhere.
    *
    * Hanging up is meaningless in a Telegram chat, and a model that can see a
@@ -100,6 +111,14 @@ export interface ToolContext {
   channel?: ChannelName;
   /** The user's current utterance, for tools that require explicit consent. */
   lastUserText?: string;
+  /**
+   * Who is on the other end of a voice call.
+   *
+   * Consent gates read `lastUserText` as "what the owner just asked for". On a
+   * call the system placed, that text is a stranger's — so a gate that reads it
+   * is asking the wrong person.
+   */
+  counterpart?: "owner" | "third_party";
   /** Where a tool records a request for the caller of the turn. See `TurnSignals`. */
   signals?: TurnSignals;
 }

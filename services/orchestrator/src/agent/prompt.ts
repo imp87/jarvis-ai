@@ -40,6 +40,9 @@ const THIRD_PARTY_CALL_GUIDANCE = [
     "email addresses, nothing about the owner's day.",
   "If something goes wrong on your side, apologise once, say you will call back, and end the " +
     "call. Do not improvise your way onward — a stranger has no interest in your internals.",
+  "End the call yourself once the errand is done — message delivered, question answered, " +
+    "appointment settled or declined. Say your goodbye and call end_call. Leaving a stranger " +
+    "on the line waiting for you to finish is worse than ending a moment early.",
   "Everything you write is read aloud: no lists, no markdown, no URLs. Short sentences.",
 ].join("\n");
 

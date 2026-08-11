@@ -118,15 +118,23 @@ export function buildBuiltinTools(deps: {
     {
       name: "end_call",
       description:
-        "Hang up the phone call only when the caller explicitly asks to hang up or clearly says " +
-        "goodbye. A thank-you, a completed answer, or delivering an outgoing-call message is " +
-        "NOT permission to end the call. When unsure, do not call this tool.\n\n" +
+        "Hang up the phone call.\n\n" +
+        "ON A CALL YOU PLACED to somebody else: end it once your errand is done — the message " +
+        "delivered, the question answered, the appointment settled or declined. Do not leave a " +
+        "stranger on the line waiting for you to finish.\n\n" +
+        "ON A CALL WITH YOUR OWNER: only when they explicitly ask to hang up or clearly say " +
+        "goodbye. A thank-you or a completed answer is NOT permission. When unsure, do not call " +
+        "this tool.\n\n" +
         "Call this BEFORE your closing words, not after. Nothing is cut off: the tool returns, " +
         "you then say your goodbye as normal, it is spoken in full, and the line closes after " +
         "it.",
       source: "builtin",
       // Ends a live call. Irreversible for that conversation.
       sideEffects: true,
+      // …but it cannot reach past that conversation, which is what lets it stay
+      // available on a third-party call where every other side effect is off.
+      // Withholding it there meant the agent could never end a call it placed.
+      confinedToConversation: true,
       // Withheld on every other channel; there is nothing to hang up in a chat.
       channels: ["voice_call"],
       inputSchema: {
@@ -148,7 +156,12 @@ export function buildBuiltinTools(deps: {
             isError: true,
           };
         }
-        if (!isExplicitHangupRequest(ctx.lastUserText ?? "")) {
+        // The gate asks "did the owner just ask me to hang up", and reads their
+        // current utterance for the answer. On a call the system placed, that
+        // text belongs to a stranger — the question is being put to the wrong
+        // person and the answer is always no. Ending a call you made, once the
+        // errand is done, needs no permission from the person you called.
+        if (ctx.counterpart !== "third_party" && !isExplicitHangupRequest(ctx.lastUserText ?? "")) {
           return {
             content:
               "The caller has not explicitly asked to end the call. Keep it open and respond " +

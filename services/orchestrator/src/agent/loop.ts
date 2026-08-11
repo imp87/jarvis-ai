@@ -127,7 +127,8 @@ export class AgentLoop {
 
     // Tools a channel cannot support are never offered — see `ExecutableTool.channels`.
     const available: ExecutableTool[] = (await this.tools.list(channel)).filter(
-      (tool) => input.allowSideEffects !== false || !tool.sideEffects,
+      (tool) =>
+        input.allowSideEffects !== false || !tool.sideEffects || tool.confinedToConversation,
     );
     const toolDefinitions = available.map((tool) => ({
       name: tool.name,
@@ -214,6 +215,7 @@ export class AgentLoop {
             userId,
             channel,
             lastUserText: input.text,
+            ...(input.counterpart ? { counterpart: input.counterpart } : {}),
             signals,
           });
           return { call, result };

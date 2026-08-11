@@ -396,6 +396,8 @@ ${input.text}`,
         // the single most important line in this handler.
         allowSideEffects: false,
         counterpart: "third_party",
+        // Reaches the tools through ToolContext: `end_call` needs it to know
+        // whose consent its gate should be reading.
       });
 
       await repos.calls.appendTranscript(callId, {
