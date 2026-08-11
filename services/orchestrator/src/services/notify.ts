@@ -35,6 +35,14 @@ export class NotificationService {
   async send(userId: string, channel: ChannelName, text: string): Promise<NotifyResult> {
     const baseUrl = this.adapters[channel];
     if (!baseUrl) {
+      // Loud on purpose. A channel that is selectable in the admin UI but has
+      // no adapter behind it drops every message it is given, and returning a
+      // quiet `false` is what made that invisible: the IMAP delivery policy
+      // offers Discord, nothing is wired to it, and the mail simply vanished.
+      this.logger.warn(
+        { channel, userId },
+        "notification dropped: no adapter is configured for this channel",
+      );
       return { delivered: false, channel, reason: `no adapter configured for ${channel}` };
     }
 

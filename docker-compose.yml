@@ -53,6 +53,11 @@ services:
       QUIET_HOURS_TIMEZONE: ${QUIET_HOURS_TIMEZONE:-Europe/Berlin}
       MAX_CALLS_PER_HOUR: ${MAX_CALLS_PER_HOUR:-2}
       MAX_CALLS_PER_DAY: ${MAX_CALLS_PER_DAY:-8}
+      # Separate allowance for the orchestrator's own alarms, so a day of
+      # reminders cannot exhaust the channel that reports a failure. These pass
+      # quiet hours, which is why the ceiling is deliberately low.
+      SYSTEM_ALERT_CALLS_PER_HOUR: ${SYSTEM_ALERT_CALLS_PER_HOUR:-1}
+      SYSTEM_ALERT_CALLS_PER_DAY: ${SYSTEM_ALERT_CALLS_PER_DAY:-3}
       OWNER_PHONE_NUMBER: ${OWNER_PHONE_NUMBER:-}
       VOICE_PIPELINE_URL: ${VOICE_PIPELINE_URL:-}
       # Lets the orchestrator speak first — scheduled tasks and anything it

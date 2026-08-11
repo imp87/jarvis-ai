@@ -1,5 +1,5 @@
 import type pg from "pg";
-import type { CallBudgetUsage } from "@jarvis/shared";
+import type { CallBudgetUsage, CallClass } from "@jarvis/shared";
 
 export type CallStatus =
   | "requested"
@@ -16,6 +16,8 @@ export interface CallLogRow {
   reason: string;
   status: CallStatus;
   blockedReason: string | null;
+  /** Which allowance the call drew on. See `CallClass`. */
+  kind: CallClass;
   createdAt: Date;
 }
 
@@ -25,14 +27,19 @@ export class CallRepository {
   /**
    * Counts calls that actually reached the network. `requested` and `blocked`
    * rows are excluded so a policy rejection never consumes budget.
+   *
+   * Counted per class: reminders and system alerts have separate allowances, so
+   * a busy day of the former can never exhaust the latter.
    */
-  async budgetUsage(): Promise<CallBudgetUsage> {
+  async budgetUsage(kind: CallClass = "normal"): Promise<CallBudgetUsage> {
     const { rows } = await this.pool.query<{ last_hour: string; last_day: string }>(
       `SELECT
          count(*) FILTER (WHERE created_at > now() - interval '1 hour') AS last_hour,
          count(*) FILTER (WHERE created_at > now() - interval '1 day')  AS last_day
        FROM call_logs
-       WHERE status IN ('dialing', 'in_progress', 'completed')`,
+       WHERE status IN ('dialing', 'in_progress', 'completed')
+         AND kind = $1`,
+      [kind],
     );
     const row = rows[0]!;
     return { lastHour: Number(row.last_hour), lastDay: Number(row.last_day) };
@@ -44,29 +51,23 @@ export class CallRepository {
     reason: string;
     status: CallStatus;
     blockedReason?: string | null;
+    /** Which allowance this call draws on. Defaults to an ordinary call. */
+    kind?: CallClass;
   }): Promise<CallLogRow> {
     const { rows } = await this.pool.query(
-      `INSERT INTO call_logs (conversation_id, direction, to_number, reason, status, blocked_reason)
-       VALUES ($1, 'outbound', $2, $3, $4, $5)
-       RETURNING id, conversation_id, to_number, reason, status, blocked_reason, created_at`,
+      `INSERT INTO call_logs (conversation_id, direction, to_number, reason, status, blocked_reason, kind)
+       VALUES ($1, 'outbound', $2, $3, $4, $5, $6)
+       RETURNING ${CALL_COLUMNS}`,
       [
         input.conversationId ?? null,
         input.toNumber,
         input.reason,
         input.status,
         input.blockedReason ?? null,
+        input.kind ?? "normal",
       ],
     );
-    const r = rows[0] as Record<string, unknown>;
-    return {
-      id: r["id"] as string,
-      conversationId: (r["conversation_id"] as string | null) ?? null,
-      toNumber: r["to_number"] as string,
-      reason: r["reason"] as string,
-      status: r["status"] as CallStatus,
-      blockedReason: (r["blocked_reason"] as string | null) ?? null,
-      createdAt: r["created_at"] as Date,
-    };
+    return toCallLogRow(rows[0] as Record<string, unknown>);
   }
 
   async updateStatus(
@@ -103,38 +104,35 @@ export class CallRepository {
 
   async get(id: string): Promise<CallLogRow | null> {
     const { rows } = await this.pool.query(
-      `SELECT id, conversation_id, to_number, reason, status, blocked_reason, created_at
-         FROM call_logs WHERE id = $1`,
+      `SELECT ${CALL_COLUMNS} FROM call_logs WHERE id = $1`,
       [id],
     );
     const r = rows[0] as Record<string, unknown> | undefined;
-    return r
-      ? {
-          id: r["id"] as string,
-          conversationId: (r["conversation_id"] as string | null) ?? null,
-          toNumber: r["to_number"] as string,
-          reason: r["reason"] as string,
-          status: r["status"] as CallStatus,
-          blockedReason: (r["blocked_reason"] as string | null) ?? null,
-          createdAt: r["created_at"] as Date,
-        }
-      : null;
+    return r ? toCallLogRow(r) : null;
   }
 
   async list(limit = 50): Promise<CallLogRow[]> {
     const { rows } = await this.pool.query(
-      `SELECT id, conversation_id, to_number, reason, status, blocked_reason, created_at
-         FROM call_logs ORDER BY created_at DESC LIMIT $1`,
+      `SELECT ${CALL_COLUMNS} FROM call_logs ORDER BY created_at DESC LIMIT $1`,
       [limit],
     );
-    return (rows as Array<Record<string, unknown>>).map((r) => ({
-      id: r["id"] as string,
-      conversationId: (r["conversation_id"] as string | null) ?? null,
-      toNumber: r["to_number"] as string,
-      reason: r["reason"] as string,
-      status: r["status"] as CallStatus,
-      blockedReason: (r["blocked_reason"] as string | null) ?? null,
-      createdAt: r["created_at"] as Date,
-    }));
+    return (rows as Array<Record<string, unknown>>).map(toCallLogRow);
   }
+}
+
+const CALL_COLUMNS = `id, conversation_id, to_number, reason, status, blocked_reason, kind, created_at`;
+
+function toCallLogRow(r: Record<string, unknown>): CallLogRow {
+  return {
+    id: r["id"] as string,
+    conversationId: (r["conversation_id"] as string | null) ?? null,
+    toNumber: r["to_number"] as string,
+    reason: r["reason"] as string,
+    status: r["status"] as CallStatus,
+    blockedReason: (r["blocked_reason"] as string | null) ?? null,
+    // Rows written before migration 013 have no class of their own; they were
+    // all ordinary calls, which is what the column defaults to.
+    kind: (r["kind"] as CallClass | null) ?? "normal",
+    createdAt: r["created_at"] as Date,
+  };
 }

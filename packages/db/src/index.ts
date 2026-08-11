@@ -9,3 +9,4 @@ export * from "./repositories/settings.js";
 export * from "./repositories/tasks.js";
 export * from "./repositories/email.js";
 export * from "./repositories/calendar.js";
+export * from "./repositories/notifications.js";

@@ -40,6 +40,18 @@ Last reviewed: 2026-08-09.
 - Call policy is a hard guardrail: quiet hours block normal calls; per-hour and
   per-day budgets block every call, including urgent ones. `0` means unlimited.
   The model must not be able to mark its own call urgent.
+- Calls belong to one of two classes with separate budgets (`call_logs.kind`).
+  `normal` is everything the agent or operator asks for. `system_alert` is the
+  orchestrator reporting its own failure; it passes quiet hours by construction
+  and draws on `SYSTEM_ALERT_CALLS_PER_HOUR`/`_PER_DAY`. The split exists so a
+  day of reminders cannot exhaust the channel that reports a failure. No tool
+  reaches `system_alert`, so the model cannot route itself past quiet hours.
+- System alerts are never written by the model: wording is fixed in code
+  (`services/alerts.ts`). If the LLM is the part that failed, it cannot also be
+  the part that reports it. Every incident is persisted to `notifications`
+  *before* delivery is attempted, with an idempotency key so a retrying producer
+  raises one alarm rather than one per attempt; each channel tried is recorded
+  in `notification_attempts`.
 - Runtime call-policy overrides are read per request from the singleton
   `runtime_settings` table; `NULL` means fall back to the environment default.
   Omitted API fields mean unchanged, while explicit `null` clears an override.

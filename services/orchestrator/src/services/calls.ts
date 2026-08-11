@@ -1,11 +1,25 @@
 import type { CallRepository, CallLogRow } from "@jarvis/db";
-import { evaluateCallPolicy, type CallRequest, type Logger } from "@jarvis/shared";
+import {
+  evaluateCallPolicy,
+  selectCallBudget,
+  type CallClass,
+  type CallRequest,
+  type Logger,
+} from "@jarvis/shared";
 import type { PolicyService } from "./policy.js";
 
 export interface CallServiceOptions {
   /** Voice pipeline base URL. When absent, calls are recorded but not placed. */
   voicePipelineUrl?: string | undefined;
   serviceToken: string;
+  /**
+   * Allowance for the orchestrator's own alarms, separate from the agent's.
+   *
+   * Deliberately small. It has to survive a day of reminders having spent the
+   * ordinary budget, but an alarm that can repeat without limit is itself a way
+   * to be dialled all night.
+   */
+  systemAlertBudget: { maxPerHour: number; maxPerDay: number };
 }
 
 export type CallOutcome =
@@ -26,19 +40,33 @@ export class CallService {
     private readonly logger: Logger,
   ) {}
 
-  async requestCall(request: CallRequest): Promise<CallOutcome> {
+  /**
+   * @param callClass Which allowance to draw on. `system_alert` is reserved for
+   * the orchestrator reporting its own failure and is never reachable from a
+   * tool, so the model cannot route itself onto the channel that ignores quiet
+   * hours.
+   */
+  async requestCall(request: CallRequest, callClass: CallClass = "normal"): Promise<CallOutcome> {
     // Resolved per request: quiet hours edited in the admin UI must apply to the
     // very next call, not after a restart.
     const [usage, policy] = await Promise.all([
-      this.repo.budgetUsage(),
+      this.repo.budgetUsage(callClass),
       this.policy.resolve(),
     ]);
+    // Paired through the helper rather than by hand: checking an alarm against
+    // the budget the reminders have already spent is the failure this split
+    // exists to prevent.
+    const budget = selectCallBudget(callClass, {
+      normal: { maxPerHour: policy.maxCallsPerHour, maxPerDay: policy.maxCallsPerDay },
+      systemAlert: this.options.systemAlertBudget,
+    });
     const decision = evaluateCallPolicy({
       now: new Date(),
       urgent: request.urgent,
       quiet: policy.quietHours,
-      budget: { maxPerHour: policy.maxCallsPerHour, maxPerDay: policy.maxCallsPerDay },
+      budget,
       usage,
+      callClass,
     });
 
     if (!decision.allowed) {
@@ -48,18 +76,20 @@ export class CallService {
         reason: request.reason,
         status: "blocked",
         blockedReason: decision.reason,
+        kind: callClass,
       });
       this.logger.info(
         {
           reason: decision.reason,
           to: maskNumber(request.toNumber),
+          callClass,
           usage,
           // Which limits were actually in force, and whether they came from the
           // database or the environment. Without this, "the limit is 0 but it
           // says 8" is only answerable by hand.
           limits: {
-            perHour: policy.maxCallsPerHour,
-            perDay: policy.maxCallsPerDay,
+            perHour: budget.maxPerHour,
+            perDay: budget.maxPerDay,
             quietHours: policy.quietHours,
           },
           source: policy.overridden,
@@ -74,6 +104,7 @@ export class CallService {
       toNumber: request.toNumber,
       reason: request.reason,
       status: "requested",
+      kind: callClass,
     });
 
     if (!this.options.voicePipelineUrl) {

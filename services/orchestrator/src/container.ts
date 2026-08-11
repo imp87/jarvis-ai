@@ -5,6 +5,7 @@ import {
   EmailRepository,
   IdentityRepository,
   MemoryRepository,
+  NotificationRepository,
   RegistryRepository,
   SettingsRepository,
   TaskRepository,
@@ -23,6 +24,7 @@ import { CallService } from "./services/calls.js";
 import { MemoryService } from "./services/memory.js";
 import { PolicyService } from "./services/policy.js";
 import { NotificationService } from "./services/notify.js";
+import { AlertService } from "./services/alerts.js";
 import { TaskService } from "./services/tasks.js";
 import { TaskRunner } from "./services/task-runner.js";
 import { buildTaskTools } from "./agent/tools/tasks.js";
@@ -50,6 +52,7 @@ export interface Container {
     tasks: TaskRepository;
     emails: EmailRepository;
     calendars: CalendarRepository;
+    notifications: NotificationRepository;
   };
   router: LlmRouter;
   mcp: McpManager;
@@ -59,6 +62,7 @@ export interface Container {
   calls: CallService;
   policy: PolicyService;
   notifications: NotificationService;
+  alerts: AlertService;
   taskService: TaskService;
   taskRunner: TaskRunner;
   imap: ImapService;
@@ -85,6 +89,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     tasks: new TaskRepository(pool),
     emails: new EmailRepository(pool),
     calendars: new CalendarRepository(pool),
+    notifications: new NotificationRepository(pool),
   };
 
   const { router } = buildProviders({
@@ -124,6 +129,10 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     {
       voicePipelineUrl: env.VOICE_PIPELINE_URL,
       serviceToken: env.SERVICE_TOKEN,
+      systemAlertBudget: {
+        maxPerHour: env.SYSTEM_ALERT_CALLS_PER_HOUR,
+        maxPerDay: env.SYSTEM_ALERT_CALLS_PER_DAY,
+      },
     },
     logger,
   );
@@ -188,6 +197,15 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     { telegram: env.TELEGRAM_ADAPTER_URL },
     env.SERVICE_TOKEN,
     logger,
+  );
+  // The system reporting on itself: fixed wording, no model in the path, and
+  // its own call allowance so a busy day cannot silence it.
+  const alerts = new AlertService(
+    repos.notifications,
+    notifications,
+    calls,
+    logger,
+    env.OWNER_PHONE_NUMBER,
   );
   const taskService = new TaskService(repos.tasks);
 
@@ -258,6 +276,7 @@ export async function buildContainer(config: AppConfig): Promise<Container> {
     calls,
     policy,
     notifications,
+    alerts,
     taskService,
     taskRunner,
     imap,

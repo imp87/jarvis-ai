@@ -27,6 +27,12 @@ export const baseEnvSchema = z.object({
   QUIET_HOURS_TIMEZONE: z.string().default("Europe/Berlin"),
   MAX_CALLS_PER_HOUR: z.coerce.number().int().nonnegative().default(2),
   MAX_CALLS_PER_DAY: z.coerce.number().int().nonnegative().default(8),
+  // The orchestrator's own alarms draw on a separate allowance, so a day of
+  // reminders cannot exhaust the channel that reports a failure. Small on
+  // purpose: these pass quiet hours, and an alarm without a ceiling is itself a
+  // way to be dialled all night. 0 means unlimited, as everywhere else here.
+  SYSTEM_ALERT_CALLS_PER_HOUR: z.coerce.number().int().nonnegative().default(1),
+  SYSTEM_ALERT_CALLS_PER_DAY: z.coerce.number().int().nonnegative().default(3),
 
   MAX_LLM_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(60),
   MAX_AGENT_STEPS: z.coerce.number().int().positive().max(50).default(12),

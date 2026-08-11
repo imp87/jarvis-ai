@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { evaluateCallPolicy, isWithinQuietHours } from "../src/policy.js";
+import { evaluateCallPolicy, isWithinQuietHours, selectCallBudget } from "../src/policy.js";
 
 const quiet = { start: "22:00", end: "07:00", timezone: "Europe/Berlin" };
 const budget = { maxPerHour: 2, maxPerDay: 8 };
@@ -77,6 +77,76 @@ describe("evaluateCallPolicy", () => {
     });
     assert.equal(decision.allowed, false);
     assert.match(decision.allowed === false ? decision.reason : "", /daily call budget/);
+  });
+});
+
+describe("system alerts", () => {
+  // The case these exist for: Jarvis promised a third party an appointment and
+  // then failed to record it. The commitment lives in someone else's book, so
+  // staying quiet until morning means missing it.
+  const alertBudget = { maxPerHour: 1, maxPerDay: 3 };
+  const night = new Date("2026-08-08T23:30:00Z"); // 01:30 Berlin
+
+  it("passes quiet hours without being marked urgent", () => {
+    const decision = evaluateCallPolicy({
+      now: night,
+      urgent: false,
+      quiet,
+      budget: alertBudget,
+      usage: noUsage,
+      callClass: "system_alert",
+    });
+    assert.equal(decision.allowed, true);
+  });
+
+  it("is still bounded by its own budget", () => {
+    // An alarm that can repeat without limit is itself a way to be dialled all
+    // night. Waking you is the exception; doing it unboundedly is not.
+    const decision = evaluateCallPolicy({
+      now: night,
+      urgent: false,
+      quiet,
+      budget: alertBudget,
+      usage: { lastHour: 0, lastDay: 3 },
+      callClass: "system_alert",
+    });
+    assert.equal(decision.allowed, false);
+    assert.match(decision.allowed === false ? decision.reason : "", /daily call budget/);
+  });
+
+  it("does not draw on the same allowance as ordinary calls", () => {
+    // The whole point of the split: a day of reminders must not be able to
+    // consume the emergency channel, which is exactly what a shared counter did.
+    const spentOnReminders = { lastHour: 2, lastDay: 8 };
+    assert.equal(
+      evaluateCallPolicy({
+        now: new Date("2026-08-08T12:00:00Z"),
+        urgent: false,
+        quiet,
+        budget,
+        usage: spentOnReminders,
+      }).allowed,
+      false,
+      "the ordinary budget is exhausted",
+    );
+    assert.equal(
+      evaluateCallPolicy({
+        now: new Date("2026-08-08T12:00:00Z"),
+        urgent: false,
+        quiet,
+        budget: alertBudget,
+        usage: noUsage,
+        callClass: "system_alert",
+      }).allowed,
+      true,
+      "the alert allowance is untouched by them",
+    );
+  });
+
+  it("selectCallBudget pairs a class with its own limits", () => {
+    const perClass = { normal: budget, systemAlert: alertBudget };
+    assert.deepEqual(selectCallBudget("normal", perClass), budget);
+    assert.deepEqual(selectCallBudget("system_alert", perClass), alertBudget);
   });
 });
 
